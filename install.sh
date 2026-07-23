@@ -1,9 +1,8 @@
 #!/bin/bash
-# ----------------------------------------------------------------------
-# Script de instalación personalizado - nokasvip | kyz | http door | socketdevz
+#
+# Script de instalación personalizado - sin marcas externas
 # Uso personal - Todos los derechos reservados
-# Basado en el trabajo original de Hex Applications, adaptado y corregido.
-# ----------------------------------------------------------------------
+#
 set -o pipefail
 clear
 
@@ -21,7 +20,7 @@ case "$ID:$VERSION_ID" in
 esac
 
 echo "============================================================"
-echo "              Instalador de Script SSH - nokasvip"
+echo "              Instalador de Script SSH"
 echo "        (AutoScript: SSH/Xray/Hysteria/ZiVPN/UDP Custom)"
 echo "============================================================"
 echo ""
@@ -40,35 +39,22 @@ if [ "$SUPPORT_LEVEL" = "unsupported" ]; then
   exit 1
 fi
 
-# --- Dominio y credenciales ---
+# Preguntar dominio (con IP por defecto)
 read -p "Ingresa tu Dominio/Subdominio para Xray (o presiona enter para usar la IP): " -e -i "$(curl -4 -s --max-time 2 ipv4.icanhazip.com || hostname -I | awk '{print $1}')" DOMAIN
 export DOMAIN
 
-# Generar claves Ed25519 para SlowDNS (compatibles con el binario sldns-server)
-mkdir -p /etc/slowdns
-if command -v openssl >/dev/null 2>&1; then
-    openssl genpkey -algorithm ed25519 -out /etc/slowdns/server.key 2>/dev/null
-    openssl pkey -in /etc/slowdns/server.key -pubout -out /etc/slowdns/server.pub 2>/dev/null
-fi
-# Si falla la generación, se crearán claves por defecto (no ideales, pero evitan error)
-if [ ! -s /etc/slowdns/server.key ]; then
-    echo "nokasvip-slowdns-key-default" > /etc/slowdns/server.key
-    echo "nokasvip-slowdns-pub-default" > /etc/slowdns/server.pub
-fi
-Serverkey=$(cat /etc/slowdns/server.key | grep -v "BEGIN" | grep -v "END" | tr -d '\n' | tr -d ' ' | head -c 64)
-Serverpub=$(cat /etc/slowdns/server.pub | grep -v "BEGIN" | grep -v "END" | tr -d '\n' | tr -d ' ' | head -c 64)
+# Generar claves aleatorias para SlowDNS y credenciales
+Serverkey=$(openssl rand -hex 32)
+Serverpub=$(openssl rand -hex 32)
+PASSWORD=$(openssl rand -base64 12 | tr -d '/+=' | head -c 16)
+OBFS="secure-$(openssl rand -hex 4)"
 
-# Credenciales aleatorias para Hysteria y ZiVPN
-PASSWORD=$(openssl rand -base64 12 2>/dev/null | tr -d '/+=' | head -c 16 || echo "nokasvip2024")
-OBFS="nokasvip-$(openssl rand -hex 4 2>/dev/null || echo "secure")"
-
-# --- Preparación inicial ---
+# Preparación de paquetes
 apt-get update -y >/dev/null 2>&1
 command -v dig >/dev/null 2>&1 || apt-get install -y dnsutils >/dev/null 2>&1
 command -v certbot >/dev/null 2>&1 || apt-get install -y certbot >/dev/null 2>&1
 
 mkdir -p /etc/xray
-# Certificado
 if [[ "$DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     USE_LETSENCRYPT=false
     echo "Se usará un certificado autofirmado para la IP $DOMAIN."
@@ -102,7 +88,7 @@ if [ "$USE_LETSENCRYPT" = false ]; then
     openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
       -keyout /etc/xray/xray.key \
       -out /etc/xray/xray.crt \
-      -subj "/CN=${DOMAIN}/O=nokasvip/C=US"
+      -subj "/CN=${DOMAIN}/O=VPN-Service/C=US"
     echo "selfsigned" > /etc/xray/cert_type
 else
     cp "$CERT_PATH" /etc/xray/xray.crt
@@ -115,7 +101,7 @@ cat /etc/xray/xray.key /etc/xray/xray.crt > /etc/stunnel/stunnel.pem
 chmod 600 /etc/stunnel/stunnel.pem
 chown root:root /etc/stunnel/stunnel.pem
 
-# Variables de puertos (igual que el original)
+# Variables de puertos
 SSH_Port1='22'
 SSH_Port2='299'
 Stunnel_Port='127.0.0.1:4443'
@@ -134,6 +120,7 @@ Dns_1='1.1.1.1'
 Dns_2='1.0.0.1'
 MyVPS_Time='Africa/Accra'
 
+# Preguntar SlipStream
 read -p "¿Deseas instalar SlipStream (túnel DNS adicional)? [y/N]: " -e -i "N" _install_slipstream
 if [[ "$_install_slipstream" =~ ^[Yy]$ ]]; then
     InstallSlipstream="y"
@@ -155,70 +142,6 @@ function ip_address(){
 IPADDR="$(ip_address)"
 
 red='\e[1;31m'; green='\e[0;32m'; NC='\e[0m'
-
-# --- Actualización e instalación de paquetes ---
-apt-get update -y && apt-get upgrade -y --with-new-pkgs
-
-# Gestión de systemd-resolved (más suave)
-if systemctl is-active --quiet systemd-resolved; then
-    systemctl stop systemd-resolved
-    systemctl disable systemd-resolved
-fi
-rm -f /etc/resolv.conf
-if [ -L /run/systemd/resolve/stub-resolv.conf ] || [ -f /run/systemd/resolve/stub-resolv.conf ]; then
-    ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-else
-    printf 'nameserver %s\nnameserver %s\n' "$Dns_1" "$Dns_2" > /etc/resolv.conf
-fi
-
-# IPv6 persistente
-cat > /etc/sysctl.d/99-ipv6-disable.conf <<EOF
-net.ipv6.conf.all.disable_ipv6 = 1
-net.ipv6.conf.default.disable_ipv6 = 1
-EOF
-sysctl -p /etc/sysctl.d/99-ipv6-disable.conf >/dev/null 2>&1
-
-# Instalar Node.js moderno (versión 18.x)
-if ! command -v node >/dev/null 2>&1; then
-    curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-    apt-get install -y nodejs
-fi
-
-SSH_SERVICE="ssh"; STUNNEL_SERVICE="stunnel4"; SQUID_SERVICE="squid"; SSLH_SERVICE="sslh"; NGINX_SERVICE="nginx"; SFTP_SUBSYSTEM="internal-sftp"
-
-mkdir -p /etc/stunnel /etc/nginx/conf.d /etc/deekayvpn /var/run/sslh /etc/xray
-echo "$DOMAIN" > /etc/deekayvpn/domain.txt
-echo "$SlipstreamDomain" > /etc/deekayvpn/slipstream_domain.txt
-ssh-keygen -A >/dev/null 2>&1 || true
-
-PACKAGE_LIST=(
-  neofetch sslh dnsutils stunnel4 squid nano sudo wget unzip tar zip gzip
-  iptables iptables-persistent netfilter-persistent bc cron dos2unix whois screen ruby
-  apt-transport-https software-properties-common gnupg2 ca-certificates curl net-tools 
-  nginx haproxy certbot jq figlet git gcc make build-essential perl expect libdbi-perl vnstat socat
-  libnet-ssleay-perl libauthen-pam-perl libio-pty-perl apt-show-versions openssh-server rsyslog lsof procps
-  cmake pkg-config libssl-dev dante-server dnsdist
-)
-apt-get install -y "${PACKAGE_LIST[@]}"
-
-# Zona horaria
-ln -fs /usr/share/zoneinfo/$MyVPS_Time /etc/localtime
-
-# Banner personalizado (marca)
-cat <<'nokasvip_banner' > /etc/zorro-luffy
-<br><font color="#C12267">nokasvip | kyz | http door | socketdevz<br></font><br>
-<font color="#b3b300"> x No DDOS<br></font>
-<font color="#00cc00"> x No Torrent<br></font>
-<font color="#ff1aff"> x No Spamming<br></font>
-<font color="blue"> x No Phishing<br></font>
-<font color="#A810FF"> x No Hacking<br></font><br>
-<font color="red">• POWERED BY SOCKETDEVZ<br></font>
-nokasvip_banner
-
-# ===== CONFIGURACIÓN DE SERVICIOS =====
-# A partir de aquí, se configuran SSH, SSLH, Stunnel, Node WS, etc.
-# (Esta es la Parte 1; la Parte 2 comenzará con la configuración de SSH)
-
 # ======================================================
 #  CONFIGURACIÓN DE SSH
 # ======================================================
@@ -331,7 +254,7 @@ if (!LISTEN_PORT) { process.exit(1); }
 const handleConnection = (clientSocket) => {
     clientSocket.once('data', (data) => {
         const targetSocket = net.connect(TARGET_PORT, TARGET_HOST, () => {
-            clientSocket.write('HTTP/1.1 101 <font color="yellow">nokasvip</font>\r\n\r\n');
+            clientSocket.write('HTTP/1.1 101 <font color="yellow">CONECTADO</font>\r\n\r\n');
             clientSocket.pipe(targetSocket);
             targetSocket.pipe(clientSocket);
         });
@@ -784,287 +707,6 @@ done
 EOF_EXP
 chmod +x /usr/local/bin/exp-check
 echo "0 0 * * * root /usr/local/bin/exp-check >/dev/null 2>&1" > /etc/cron.d/xray-expiry
-
-# ======================================================
-#  NGINX (puerto 85) y SQUID (puertos 3128, 8000)
-# ======================================================
-rm -rf /home/vps/public_html /etc/nginx/sites-* /etc/nginx/nginx.conf
-mkdir -p /home/vps/public_html
-cat <<'myNginxC' > /etc/nginx/nginx.conf
-user www-data; worker_processes auto; pid /var/run/nginx.pid;
-events { multi_accept on; worker_connections 8192; }
-http { gzip on; gzip_vary on; gzip_comp_level 5; gzip_types text/plain application/x-javascript text/xml text/css; autoindex on; sendfile on; tcp_nopush on; tcp_nodelay on; keepalive_timeout 65; types_hash_max_size 2048; server_tokens off; include /etc/nginx/mime.types; default_type application/octet-stream; access_log /var/log/nginx/access.log; error_log /var/log/nginx/error.log; client_max_body_size 32M; client_header_buffer_size 8m; large_client_header_buffers 8 8m; fastcgi_buffer_size 8m; fastcgi_buffers 8 8m; fastcgi_read_timeout 600; include /etc/nginx/conf.d/*.conf; }
-myNginxC
-cat <<'myvpsC' > /etc/nginx/conf.d/vps.conf
-server { listen Nginx_Port; server_name 127.0.0.1 localhost; root /home/vps/public_html; location / { try_files $uri $uri/ /index.php?$args; } }
-myvpsC
-sed -i "s|Nginx_Port|$Nginx_Port|g" /etc/nginx/conf.d/vps.conf
-systemctl restart "$NGINX_SERVICE"
-
-rm -rf /etc/squid/squid.con*
-cat <<'mySquid' > /etc/squid/squid.conf
-acl server dst IP-ADDRESS/32 localhost
-acl ports_ port 14 22 53 21 8081 25 8000 3128 443 80 8080 8880 2082 2086 36712
-http_port Squid_Port1
-http_port Squid_Port2
-http_access allow server
-http_access deny all
-http_access allow all
-visible_hostname IP-ADDRESS
-mySquid
-sed -i "s|IP-ADDRESS|$IPADDR|g" /etc/squid/squid.conf
-sed -i "s|Squid_Port1|$Squid_Port1|g" /etc/squid/squid.conf
-sed -i "s|Squid_Port2|$Squid_Port2|g" /etc/squid/squid.conf
-systemctl restart "$SQUID_SERVICE"
-
-# ======================================================
-#  HEALTH CHECKS (sin Telegram)
-# ======================================================
-mkdir -p /etc/deekayvpn/health
-cat <<'ServiceChecker' > /etc/deekayvpn/service_checker.sh
-#!/bin/bash
-STATE_DIR="/etc/deekayvpn/health"
-check_port() { ss -lnt | awk '{print $4}' | grep -q ":$1$"; }
-mark_fail() { local f="$STATE_DIR/$1.fail"; local n=0; [ -f "$f" ] && n=$(cat "$f"); n=$((n+1)); echo "$n" > "$f"; echo "$n"; }
-clear_fail() { rm -f "$STATE_DIR/$1.fail"; }
-restart_after_3_fails() {
-    local fails=$(mark_fail "$1")
-    if [ "$fails" -ge 3 ]; then
-        systemctl restart "$2" >/dev/null 2>&1
-        clear_fail "$1"
-    fi
-}
-if check_port SSHPORT1 && check_port SSHPORT2 && systemctl is-active --quiet ssh; then clear_fail ssh; else restart_after_3_fails ssh ssh "SSHPORT1,SSHPORT2"; fi
-if check_port STUNNELPORT && systemctl is-active --quiet stunnel4; then clear_fail stunnel4; else restart_after_3_fails stunnel4 stunnel4 "STUNNELPORT"; fi
-if check_port SSLHPORT && systemctl is-active --quiet sslh; then clear_fail sslh; else restart_after_3_fails sslh sslh "SSLHPORT"; fi
-if check_port SQUIDPORT1 && check_port SQUIDPORT2 && systemctl is-active --quiet squid; then clear_fail squid; else restart_after_3_fails squid squid "SQUIDPORT1,SQUIDPORT2"; fi
-if check_port NGINXPORT && systemctl is-active --quiet nginx; then clear_fail nginx; else restart_after_3_fails nginx nginx "NGINXPORT"; fi
-for port in 10080 25 2082 2086; do if check_port $port && systemctl is-active --quiet ws-proxy@$port; then clear_fail ws-proxy-$port; else restart_after_3_fails ws-proxy-$port ws-proxy@$port "$port"; fi; done
-# Xray: chequea puertos 443 y 80 (además de los internos)
-if check_port 443 && check_port 80 && systemctl is-active --quiet xray; then clear_fail xray; else restart_after_3_fails xray xray "443,80"; fi
-if systemctl is-active --quiet hysteria-server; then clear_fail hysteria-server; else restart_after_3_fails hysteria-server hysteria-server "UDP"; fi
-ServiceChecker
-
-chmod 755 /etc/deekayvpn/service_checker.sh
-sed -i "s|STUNNELPORT|$Stunnel_Port_Num|g" /etc/deekayvpn/service_checker.sh
-sed -i "s|SSLHPORT|$MainPort|g" /etc/deekayvpn/service_checker.sh
-sed -i "s|SQUIDPORT1|$Squid_Port1|g" /etc/deekayvpn/service_checker.sh
-sed -i "s|SQUIDPORT2|$Squid_Port2|g" /etc/deekayvpn/service_checker.sh
-sed -i "s|NGINXPORT|$Nginx_Port|g" /etc/deekayvpn/service_checker.sh
-sed -i "s|SSHPORT1|$SSH_Port1|g" /etc/deekayvpn/service_checker.sh
-sed -i "s|SSHPORT2|$SSH_Port2|g" /etc/deekayvpn/service_checker.sh
-
-echo "*/3 * * * * root /bin/bash /etc/deekayvpn/service_checker.sh >/dev/null 2>&1" > /etc/cron.d/service-checker
-
-# ======================================================
-#  SSH LIMIT CHECKER (límite de conexiones simultáneas)
-# ======================================================
-mkdir -p /etc/deekayvpn
-touch /etc/deekayvpn/ssh_limits.txt
-cat <<'SSHLimitChecker' > /etc/deekayvpn/ssh_limit_checker.sh
-#!/bin/bash
-DB="/etc/deekayvpn/ssh_limits.txt"
-[ -s "$DB" ] || exit 0
-while read -r suser slimit; do
-  [ -z "$suser" ] && continue
-  [[ "$slimit" =~ ^[0-9]+$ ]] || continue
-  [ "$slimit" -le 0 ] && continue
-  id "$suser" >/dev/null 2>&1 || continue
-  mapfile -t sessions < <(ps -u "$suser" -o pid=,etimes=,cmd= 2>/dev/null | awk '$0 ~ /sshd/ {print $1" "$2}')
-  count=${#sessions[@]}
-  [ "$count" -le "$slimit" ] && continue
-  excess=$((count - slimit))
-  mapfile -t sorted < <(printf '%s\n' "${sessions[@]}" | sort -k2,2n)
-  for ((i=0; i<excess; i++)); do
-    pid=$(awk '{print $1}' <<< "${sorted[$i]}")
-    [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null
-  done
-done < "$DB"
-SSHLimitChecker
-chmod 755 /etc/deekayvpn/ssh_limit_checker.sh
-echo "* * * * * root /bin/bash /etc/deekayvpn/ssh_limit_checker.sh >/dev/null 2>&1" > /etc/cron.d/ssh-limit-checker
-
-# ======================================================
-#  LOGROTATE (sin forzar cada 5 minutos)
-# ======================================================
-rm -f /etc/logrotate.d/rsyslog
-cat <<'logrotate' > /etc/logrotate.d/rsyslog
-/var/log/syslog /var/log/kern.log /var/log/auth.log /var/log/xray/access.log /var/log/xray/error.log { rotate 7; daily; missingok; notifempty; compress; delaycompress; sharedscripts; postrotate; /usr/lib/rsyslog/rsyslog-rotate; endscript; }
-logrotate
-chown root:root /var/log
-chmod 755 /var/log
-chown syslog:adm /var/log/syslog
-chmod 640 /var/log/syslog
-# No se fuerza logrotate cada 5 minutos, se deja la configuración estándar
-
-# ======================================================
-#  SISTEMA - CONFIGURACIÓN DE SYSCTL Y LÍMITES
-# ======================================================
-modprobe nf_conntrack 2>/dev/null || true
-echo "nf_conntrack" > /etc/modules-load.d/freenet.conf
-cat <<'SYSCTL' > /etc/sysctl.d/99-freenet-tuning.conf
-fs.file-max = 1048576
-net.core.somaxconn = 65535
-net.core.netdev_max_backlog = 16384
-net.ipv4.ip_local_port_range = 1024 65000
-net.ipv4.tcp_max_syn_backlog = 8192
-net.ipv4.tcp_fin_timeout = 15
-net.ipv4.tcp_tw_reuse = 1
-net.ipv4.tcp_keepalive_time = 600
-net.ipv4.tcp_keepalive_intvl = 60
-net.ipv4.tcp_keepalive_probes = 10
-net.ipv4.tcp_window_scaling = 1
-net.ipv4.tcp_mtu_probing = 1
-net.netfilter.nf_conntrack_max = 2097152
-net.netfilter.nf_conntrack_tcp_timeout_established = 1200
-net.netfilter.nf_conntrack_udp_timeout = 60
-SYSCTL
-sysctl --system || true
-mkdir -p /etc/security/limits.d
-cat <<'LIMITS' > /etc/security/limits.d/99-freenet.conf
-* soft nofile 1048576
-* hard nofile 1048576
-root soft nofile 1048576
-root hard nofile 1048576
-LIMITS
-
-# ======================================================
-#  SLOWDNS (con claves Ed25519 generadas)
-# ======================================================
-rm -rf /etc/slowdns
-mkdir -m 777 /etc/slowdns
-# Las claves ya se generaron al inicio del script, pero si no existen, se crean ahora.
-if [ ! -s /etc/slowdns/server.key ] || [ ! -s /etc/slowdns/server.pub ]; then
-    openssl genpkey -algorithm ed25519 -out /etc/slowdns/server.key 2>/dev/null
-    openssl pkey -in /etc/slowdns/server.key -pubout -out /etc/slowdns/server.pub 2>/dev/null
-fi
-# Asegurar que las claves tienen el formato esperado por sldns-server (sin cabeceras)
-Serverkey=$(cat /etc/slowdns/server.key | grep -v "BEGIN" | grep -v "END" | tr -d '\n' | tr -d ' ')
-Serverpub=$(cat /etc/slowdns/server.pub | grep -v "BEGIN" | grep -v "END" | tr -d '\n' | tr -d ' ')
-# (Si falla la generación, se usan valores por defecto)
-if [ -z "$Serverkey" ] || [ -z "$Serverpub" ]; then
-    Serverkey="nokasvip-slowdns-key-$(openssl rand -hex 16 2>/dev/null || echo 'default')"
-    Serverpub="nokasvip-slowdns-pub-$(openssl rand -hex 16 2>/dev/null || echo 'default')"
-    echo "$Serverkey" > /etc/slowdns/server.key
-    echo "$Serverpub" > /etc/slowdns/server.pub
-fi
-
-wget -q -O /etc/slowdns/sldns-server "https://raw.githubusercontent.com/fisabiliyusri/SLDNS/main/slowdns/sldns-server"
-chmod +x /etc/slowdns/sldns-server
-chmod 600 /etc/slowdns/server.key /etc/slowdns/server.pub
-iptables -C INPUT -p udp --dport 53 -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport 53 -j ACCEPT
-
-if [ "$InstallSlipstream" = "y" ]; then
-  SlowDNS_Listen="127.0.0.1:5301"
-else
-  SlowDNS_Listen=":53"
-fi
-cat > /etc/systemd/system/server-sldns.service << END
-[Unit]
-Description=Server SlowDNS
-After=network.target
-[Service]
-ExecStart=/etc/slowdns/sldns-server -udp $SlowDNS_Listen -privkey-file /etc/slowdns/server.key $DOMAIN 127.0.0.1:$SSH_Port2
-Restart=on-failure
-[Install]
-WantedBy=multi-user.target
-END
-systemctl daemon-reload
-systemctl enable server-sldns
-systemctl restart server-sldns
-
-# ======================================================
-#  SLIPSTREAM (opcional) + DANTE SOCKS + DNSDIST
-# ======================================================
-if [ "$InstallSlipstream" = "y" ]; then
-    # Dante SOCKS
-    command -v danted >/dev/null 2>&1 || apt-get install -y dante-server
-    EXT_IP="$(ip -4 addr show scope global 2>/dev/null | awk '/inet/{print $2}' | cut -d/ -f1 | head -1)"
-    [ -z "$EXT_IP" ] && EXT_IP="$(curl -s --max-time 5 ifconfig.me 2>/dev/null)"
-    cat > /etc/danted.conf <<DANTE_EOF
-logoutput: syslog
-internal: 127.0.0.1 port = 1080
-external: ${EXT_IP}
-socksmethod: none
-clientmethod: none
-client pass {
-    from: 127.0.0.1/32 to: 0.0.0.0/0
-    log: connect disconnect error
-}
-socks pass {
-    from: 127.0.0.1/32 to: 0.0.0.0/0
-    protocol: tcp udp
-    log: connect disconnect error
-}
-DANTE_EOF
-    systemctl restart danted
-    systemctl enable danted >/dev/null 2>&1
-
-    # Rust (si no está instalado)
-    if ! command -v cargo >/dev/null 2>&1; then
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y >/dev/null 2>&1
-        source "$HOME/.cargo/env"
-    else
-        source "$HOME/.cargo/env" 2>/dev/null || true
-    fi
-
-    # Clonar y compilar SlipStream
-    if [ -d "/opt/slipstream-rust/.git" ]; then
-        cd /opt/slipstream-rust
-    else
-        rm -rf /opt/slipstream-rust
-        git clone --quiet https://github.com/Mygod/slipstream-rust.git /opt/slipstream-rust
-        cd /opt/slipstream-rust
-    fi
-    git fetch --quiet origin
-    git checkout --quiet bc772dd07d9a136dbd7553b0da575526de207847
-    git submodule update --init --recursive --quiet
-    cargo build --release -p slipstream-server --quiet 2>&1
-    cd /root
-
-    cat > /etc/systemd/system/slipstream.service <<SLIPSTREAM_EOF
-[Unit]
-Description=Slipstream DNS Tunnel Server
-After=network.target danted.service
-[Service]
-Type=simple
-ExecStart=/opt/slipstream-rust/target/release/slipstream-server \\
-    --dns-listen-port 5300 \\
-    --target-address 127.0.0.1:1080 \\
-    --domain ${SlipstreamDomain} \\
-    --cert /opt/slipstream-rust/cert.pem \\
-    --key /opt/slipstream-rust/key.pem \\
-    --reset-seed /opt/slipstream-rust/reset-seed
-WorkingDirectory=/opt/slipstream-rust
-Restart=always
-RestartSec=5
-LimitNOFILE=65535
-[Install]
-WantedBy=multi-user.target
-SLIPSTREAM_EOF
-    systemctl daemon-reload
-    systemctl enable slipstream >/dev/null 2>&1
-    systemctl restart slipstream
-
-    # DNSDIST
-    command -v dnsdist >/dev/null 2>&1 || apt-get install -y dnsdist
-    mkdir -p /etc/dnsdist
-    cat > /etc/dnsdist/dnsdist.conf <<DNSDIST_EOF
-setLocal("0.0.0.0:53")
-newServer({address="127.0.0.1:5301", name="slowdns"})
-newServer({address="127.0.0.1:5300", name="slipstream"})
-addAction(SuffixMatchNodeRule("${DOMAIN}."), PoolAction("slowdns_pool"))
-setPoolServers("slowdns_pool", {getServer(0)})
-addAction(SuffixMatchNodeRule("${SlipstreamDomain}."), PoolAction("slipstream_pool"))
-setPoolServers("slipstream_pool", {getServer(1)})
-addAction(AllRule(), DropAction())
-DNSDIST_EOF
-    systemctl daemon-reload
-    systemctl enable dnsdist >/dev/null 2>&1
-    systemctl restart dnsdist
-fi
-
-
 # ======================================================
 #  NGINX (servidor web en puerto 85)
 # ======================================================
@@ -1315,7 +957,7 @@ cat > /etc/slowdns/server.pub << END
 $Serverpub
 END
 
-# Descargar binario de SlowDNS (verificación opcional, pero mantenemos el original)
+# Descargar binario de SlowDNS
 wget -q -O /etc/slowdns/sldns-server "https://raw.githubusercontent.com/fisabiliyusri/SLDNS/main/slowdns/sldns-server"
 chmod +x /etc/slowdns/sldns-server /etc/slowdns/server.key /etc/slowdns/server.pub
 
@@ -1434,16 +1076,13 @@ DNSDIST_EOF
     systemctl enable dnsdist >/dev/null 2>&1
     systemctl restart dnsdist
 fi
-
 # ======================================================
-#  HYSTERIA v1 (Sing-box v1.12.22) con Cloudflare WARP
+#  HYSTERIA v1 (Sing-box v1.12.22) & CLOUDFLARE WARP
 # ======================================================
-# Instalar Cloudflare WARP
 curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
 echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/cloudflare-client.list
 apt-get update && apt-get install -y cloudflare-warp
 
-# Configurar WARP en modo proxy
 warp-cli --accept-tos disconnect 2>/dev/null || true
 warp-cli --accept-tos registration delete 2>/dev/null || true
 warp-cli --accept-tos registration new 2>/dev/null || warp-cli --accept-tos register
@@ -1452,7 +1091,6 @@ warp-cli --accept-tos proxy port 40000
 warp-cli --accept-tos connect
 sleep 2
 
-# Instalar Sing-box (Hysteria v1)
 wget -qO /tmp/sing-box.deb "https://github.com/SagerNet/sing-box/releases/download/v1.12.22/sing-box_1.12.22_linux_amd64.deb"
 dpkg -i /tmp/sing-box.deb
 apt-mark hold sing-box
@@ -1461,7 +1099,7 @@ rm -f /tmp/sing-box.deb
 mkdir -p /etc/hysteria
 HYST_PORT="${UDP_PORT##*:}"
 
-# Usar el mismo certificado de Xray para Hysteria
+# Usar el mismo certificado de Xray para simplificar
 cp /etc/xray/xray.crt /etc/hysteria/hysteria.crt
 cp /etc/xray/xray.key /etc/hysteria/hysteria.key
 
@@ -1474,15 +1112,10 @@ cat > /etc/hysteria/config.json <<EOF
       "tag": "hy1-inbound",
       "listen": "::",
       "listen_port": $HYST_PORT,
-      "up_mbps": 100,
-      "down_mbps": 100,
+      "up_mbps": 100, "down_mbps": 100,
       "obfs": "$OBFS",
       "users": [ { "auth_str": "$PASSWORD" } ],
-      "tls": {
-        "enabled": true,
-        "certificate_path": "/etc/hysteria/hysteria.crt",
-        "key_path": "/etc/hysteria/hysteria.key"
-      }
+      "tls": { "enabled": true, "certificate_path": "/etc/hysteria/hysteria.crt", "key_path": "/etc/hysteria/hysteria.key" }
     }
   ],
   "outbounds": [
@@ -1495,42 +1128,12 @@ cat > /etc/hysteria/config.json <<EOF
       {
         "inbound": "hy1-inbound",
         "network": "udp",
-        "domain_suffix": [
-          "doubleclick.net", "googlesyndication.com", "googleadservices.com",
-          "admob.com", "google-analytics.com", "app-measurement.com",
-          "adservice.google.com", "g.doubleclick.net", "google.com",
-          "pagead2.googlesyndication.com", "tpc.googlesyndication.com",
-          "googlevideo.com", "gvt1.com", "gvt2.com", "gvt3.com",
-          "ytimg.com", "youtube.com", "gstatic.com", "googleusercontent.com",
-          "ggpht.com", "play.google.com", "firebaseio.com", "firebase.googleapis.com",
-          "crashlytics.com", "fundingchoicesmessages.google.com",
-          "imasdk.googleapis.com", "googleanalytics.com", "analytics.google.com",
-          "fcm.googleapis.com", "mtalk.google.com",
-          "firebaseinstallations.googleapis.com", "firebaselogging.googleapis.com",
-          "firebaselogging-pa.googleapis.com", "firebaseremoteconfig.googleapis.com",
-          "googleadapis.com", "accounts.google.com", "play.googleapis.com",
-          "android.apis.google.com", "adsense.com", "1e100.net"
-        ],
+        "domain_suffix": [ "doubleclick.net", "googlesyndication.com", "googleadservices.com", "admob.com", "google-analytics.com", "app-measurement.com", "adservice.google.com", "g.doubleclick.net", "google.com", "pagead2.googlesyndication.com", "tpc.googlesyndication.com", "googlevideo.com", "gvt1.com", "gvt2.com", "gvt3.com", "ytimg.com", "youtube.com", "gstatic.com", "googleusercontent.com", "ggpht.com", "play.google.com", "firebaseio.com", "firebase.googleapis.com", "crashlytics.com", "fundingchoicesmessages.google.com", "imasdk.googleapis.com", "googleanalytics.com", "analytics.google.com", "fcm.googleapis.com", "mtalk.google.com", "firebaseinstallations.googleapis.com", "firebaselogging.googleapis.com", "firebaselogging-pa.googleapis.com", "firebaseremoteconfig.googleapis.com", "googleadapis.com", "accounts.google.com", "play.googleapis.com", "android.apis.google.com", "adsense.com", "1e100.net" ],
         "outbound": "block"
       },
       {
         "inbound": "hy1-inbound",
-        "domain_suffix": [
-          "doubleclick.net", "googlesyndication.com", "googleadservices.com",
-          "admob.com", "google-analytics.com", "app-measurement.com",
-          "adservice.google.com", "g.doubleclick.net", "google.com",
-          "pagead2.googlesyndication.com", "tpc.googlesyndication.com",
-          "googlevideo.com", "gvt1.com", "gvt2.com", "gvt3.com",
-          "ytimg.com", "youtube.com", "gstatic.com", "googleusercontent.com",
-          "ggpht.com", "play.google.com", "firebaseio.com", "firebase.googleapis.com",
-          "crashlytics.com", "fundingchoicesmessages.google.com",
-          "imasdk.googleapis.com", "googleanalytics.com", "analytics.google.com",
-          "fcm.googleapis.com", "mtalk.google.com",
-          "firebaseinstallations.googleapis.com", "firebaselogging.googleapis.com",
-          "firebaselogging-pa.googleapis.com", "firebaseremoteconfig.googleapis.com",
-          "googleadapis.com", "accounts.google.com", "play.googleapis.com",
-          "android.apis.google.com", "adsense.com", "1e100.net"
-        ],
+        "domain_suffix": [ "doubleclick.net", "googlesyndication.com", "googleadservices.com", "admob.com", "google-analytics.com", "app-measurement.com", "adservice.google.com", "g.doubleclick.net", "google.com", "pagead2.googlesyndication.com", "tpc.googlesyndication.com", "googlevideo.com", "gvt1.com", "gvt2.com", "gvt3.com", "ytimg.com", "youtube.com", "gstatic.com", "googleusercontent.com", "ggpht.com", "play.google.com", "firebaseio.com", "firebase.googleapis.com", "crashlytics.com", "fundingchoicesmessages.google.com", "imasdk.googleapis.com", "googleanalytics.com", "analytics.google.com", "fcm.googleapis.com", "mtalk.google.com", "firebaseinstallations.googleapis.com", "firebaselogging.googleapis.com", "firebaselogging-pa.googleapis.com", "firebaseremoteconfig.googleapis.com", "googleadapis.com", "accounts.google.com", "play.googleapis.com", "android.apis.google.com", "adsense.com", "1e100.net" ],
         "outbound": "warp-proxy"
       },
       { "inbound": "hy1-inbound", "outbound": "direct" }
@@ -1540,11 +1143,8 @@ cat > /etc/hysteria/config.json <<EOF
 }
 EOF
 
-chmod 600 /etc/hysteria/config.json
-chmod 644 /etc/hysteria/hysteria.crt
-chmod 600 /etc/hysteria/hysteria.key
+chmod 755 /etc/hysteria/config.json /etc/hysteria/hysteria.crt /etc/hysteria/hysteria.key
 echo "$PASSWORD $(date -d "+365 days" +"%Y-%m-%d")" > /etc/hysteria/users.txt
-chmod 600 /etc/hysteria/users.txt
 
 cat > /etc/systemd/system/hysteria-server.service <<EOF
 [Unit]
@@ -1554,7 +1154,6 @@ After=network.target
 User=root
 ExecStart=/usr/bin/sing-box run -c /etc/hysteria/config.json
 Restart=on-failure
-RestartSec=5
 LimitNOFILE=1048576
 [Install]
 WantedBy=multi-user.target
@@ -1563,8 +1162,8 @@ systemctl daemon-reload
 systemctl enable hysteria-server.service
 systemctl start hysteria-server.service
 
-# Reglas NAT para Hysteria (redirigir puertos 20000-50000 al puerto 36712)
-IFACE="$(ip -4 route ls | grep default | grep -Po '(?<=dev )(\S+)' | head -1)"
+# NAT para Hysteria
+IFACE="$(ip -4 route ls|grep default|grep -Po '(?<=dev )(\S+)'|head -1)"
 cat > /etc/systemd/system/hysteria-nat.service <<EOF
 [Unit]
 Description=Restore Hysteria UDP NAT rules
@@ -1584,7 +1183,7 @@ systemctl enable hysteria-nat.service
 systemctl start hysteria-nat.service
 
 # ======================================================
-#  HYSTERIA 2 (oficial, con verificación SHA256)
+#  HYSTERIA 2 (official core)
 # ======================================================
 HYSTERIA2_VER="app/v2.9.3"
 case "$(uname -m)" in
@@ -1603,7 +1202,6 @@ if ! curl -fL --retry 3 -o "$hyst2_tmp/$HYSTERIA2_ASSET" "$HYSTERIA2_RELEASE_URL
   echo "Hysteria 2 download failed."
   exit 1
 fi
-
 hyst2_expected=$(awk -v asset="$HYSTERIA2_ASSET" '$2 == asset || $2 == "build/" asset || $2 == "*" asset {print tolower($1); exit}' "$hyst2_tmp/hashes.txt")
 hyst2_actual=$(sha256sum "$hyst2_tmp/$HYSTERIA2_ASSET" | awk '{print tolower($1)}')
 if [ -z "$hyst2_expected" ] || [ "$hyst2_actual" != "$hyst2_expected" ]; then
@@ -1616,8 +1214,6 @@ rm -rf "$hyst2_tmp"
 
 mkdir -p /etc/hysteria2
 mkdir -p /usr/local/libexec
-
-# Script de autenticación para Hysteria 2
 cat <<'EOF_HYST2_AUTH' > /usr/local/libexec/hysteria2-auth
 #!/bin/bash
 user_db="/etc/hysteria2/users.txt"
@@ -1633,16 +1229,16 @@ jq -n \
   --arg cert "/etc/xray/xray.crt" \
   --arg key "/etc/xray/xray.key" \
   --arg obfs "$OBFS" '
-{
-  listen: $listen,
-  tls: {cert: $cert, key: $key},
-  auth: {type: "command", command: "/usr/local/libexec/hysteria2-auth"},
-  obfs: {type: "salamander", salamander: {password: $obfs}},
-  masquerade: {
-    type: "proxy",
-    proxy: {url: "https://www.microsoft.com/", rewriteHost: true}
+  {
+    listen: $listen,
+    tls: {cert: $cert, key: $key},
+    auth: {type: "command", command: "/usr/local/libexec/hysteria2-auth"},
+    obfs: {type: "salamander", salamander: {password: $obfs}},
+    masquerade: {
+      type: "proxy",
+      proxy: {url: "https://www.microsoft.com/", rewriteHost: true}
+    }
   }
-}
 ' > /etc/hysteria2/config.json
 chmod 600 /etc/hysteria2/config.json
 printf 'default %s %s\n' "$HYST2_INITIAL_TOKEN" "$(date -d '+365 days' +%Y-%m-%d)" > /etc/hysteria2/users.txt
@@ -1653,6 +1249,7 @@ cat <<'EOF_HYST2_SERVICE' > /etc/systemd/system/hysteria2-server.service
 Description=Official Hysteria 2 Server
 After=network-online.target
 Wants=network-online.target
+
 [Service]
 Type=simple
 User=root
@@ -1666,6 +1263,7 @@ ProtectHome=true
 ProtectSystem=full
 ReadOnlyPaths=/etc/xray/xray.crt /etc/xray/xray.key
 ReadWritePaths=/etc/hysteria2
+
 [Install]
 WantedBy=multi-user.target
 EOF_HYST2_SERVICE
@@ -1677,12 +1275,12 @@ systemctl enable hysteria2-server.service
 systemctl restart hysteria2-server.service
 
 # ======================================================
-#  BADVPN (UDP Gateway en 127.0.0.1:7300)
+#  BADVPN (UDP Gateway)
 # ======================================================
 if [ "$(getconf LONG_BIT)" == "64" ]; then
-    wget -q -O /usr/bin/badvpn-udpgw "https://www.dropbox.com/s/jo6qznzwbsf1xhi/badvpn-udpgw64"
+ wget -q -O /usr/bin/badvpn-udpgw "https://www.dropbox.com/s/jo6qznzwbsf1xhi/badvpn-udpgw64"
 else
-    wget -q -O /usr/bin/badvpn-udpgw "https://www.dropbox.com/s/8gemt9c6k1fph26/badvpn-udpgw"
+ wget -q -O /usr/bin/badvpn-udpgw "https://www.dropbox.com/s/8gemt9c6k1fph26/badvpn-udpgw"
 fi
 chmod +x /usr/bin/badvpn-udpgw
 
@@ -1700,9 +1298,8 @@ systemctl enable badvpn
 systemctl start badvpn
 
 # ======================================================
-#  UDP CUSTOM (puerto 36717)
+#  UDP CUSTOM (Port 36717)
 # ======================================================
-echo "Instalando UDP Custom..."
 mkdir -p /root/udp
 wget -q -O /root/udp/udp-custom "https://raw.githubusercontent.com/mahpud896/UDP-Custom/main/bin/udp-custom-linux-amd64" || true
 chmod +x /root/udp/udp-custom 2>/dev/null || true
@@ -1730,9 +1327,8 @@ systemctl enable udp-custom
 systemctl start udp-custom 2>/dev/null || true
 
 # ======================================================
-#  ZIVPN (puerto 5667)
+#  ZIVPN (Port 5667)
 # ======================================================
-echo "Instalando ZiVPN..."
 mkdir -p /etc/zivpn
 wget -q -O /usr/local/bin/zivpn "https://github.com/zahidbd2/udp-zivpn/releases/download/udp-zivpn_1.4.9/udp-zivpn-linux-amd64" || true
 chmod +x /usr/local/bin/zivpn 2>/dev/null || true
@@ -1743,18 +1339,17 @@ chmod 644 /etc/zivpn/zivpn.crt /etc/zivpn/zivpn.key 2>/dev/null || true
 cat > /etc/zivpn/config.json <<EOF
 {
   "listen": ":5667",
-  "cert": "/etc/zivpn/zivpn.crt",
-  "key": "/etc/zivpn/zivpn.key",
-  "obfs": "$OBFS",
-  "auth": {
-    "mode": "passwords",
+   "cert": "/etc/zivpn/zivpn.crt",
+   "key": "/etc/zivpn/zivpn.key",
+   "obfs": "$OBFS",
+   "auth": {
+    "mode": "passwords", 
     "config": ["$PASSWORD"]
   }
 }
 EOF
-chmod 600 /etc/zivpn/config.json
+chmod 644 /etc/zivpn/config.json
 echo "$PASSWORD $(date -d "+365 days" +"%Y-%m-%d")" > /etc/zivpn/users.txt
-chmod 600 /etc/zivpn/users.txt
 
 cat > /etc/systemd/system/zivpn.service <<EOF
 [Unit]
@@ -1797,30 +1392,27 @@ systemctl enable zivpn-nat.service
 systemctl start zivpn-nat.service 2>/dev/null || true
 
 # ======================================================
-#  VNSTAT (monitor de tráfico)
+#  VNSTAT
 # ======================================================
-IFACE="$(ip -4 route ls | grep default | grep -Po '(?<=dev )(\S+)' | head -1)"
+IFACE="$(ip -4 route ls|grep default|grep -Po '(?<=dev )(\S+)'|head -1)"
 vnstat -u -i "$IFACE" 2>/dev/null || true
 systemctl enable vnstat
 systemctl restart vnstat
 
 # ======================================================
-#  STARTUP SCRIPT (se ejecuta al arrancar el sistema)
+#  STARTUP SCRIPT (deekaystartup)
 # ======================================================
 cat <<'deekayz' > /etc/deekaystartup
 #!/bin/sh
 ln -fs /usr/share/zoneinfo/MyTimeZone /etc/localtime
 export DEBIAN_FRONTEND=noninteractive
 echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6
-echo "nameserver DNS1" > /etc/resolv.conf
-echo "nameserver DNS2" >> /etc/resolv.conf
-mkdir -p /var/run/sslh
-touch /var/run/sslh/sslh.pid
-chmod 777 /var/run/sslh/sslh.pid
+echo "nameserver DNS1" > /etc/resolv.conf; echo "nameserver DNS2" >> /etc/resolv.conf
+mkdir -p /var/run/sslh; touch /var/run/sslh/sslh.pid; chmod 777 /var/run/sslh/sslh.pid
 iptables -C INPUT -p udp --dport 53 -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport 53 -j ACCEPT
 iptables -t nat -C PREROUTING -p udp --dport 36713 -j ACCEPT 2>/dev/null || iptables -t nat -I PREROUTING 1 -p udp --dport 36713 -j ACCEPT
 iptables -C INPUT -p udp --dport 36713 -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport 36713 -j ACCEPT
-IFACE=$(ip -4 route ls | grep default | grep -Po '(?<=dev )(\S+)' | head -1)
+IFACE=$(ip -4 route ls|grep default|grep -Po '(?<=dev )(\S+)'|head -1)
 iptables -t nat -C PREROUTING -i "$IFACE" -p udp --dport 20000:50000 -j DNAT --to-destination :36712 2>/dev/null || iptables -t nat -A PREROUTING -i "$IFACE" -p udp --dport 20000:50000 -j DNAT --to-destination :36712
 deekayz
 
@@ -1843,16 +1435,16 @@ chmod +x /etc/deekaystartup
 systemctl enable deekaystartup
 
 # ======================================================
-#  MENÚ PRINCIPAL (CLI) - COMPLETO Y FUNCIONAL
-#  (Adaptado del original, con marca nokasvip y sin Telegram)
+#  MENÚ PRINCIPAL (CLI) - COMPLETO
+#  (Adaptado del original, sin Telegram ni marcas externas)
 # ======================================================
 
 cat > /usr/local/bin/menu <<'EOF_MENU'
 #!/bin/bash
 
 # ======================================================
-#  MENÚ PRINCIPAL - nokasvip | kyz | http door | socketdevz
-#  Basado en el original de Hex Applications, adaptado y corregido
+#  MENÚ PRINCIPAL - nokasvip
+#  Basado en el original de Hex Applications, adaptado.
 # ======================================================
 
 # --- Detectar si el certificado es real o autofirmado ---
@@ -3278,14 +2870,14 @@ draw_header() {
     local buf=$(buffer_mem)
 
     echo -e "${BLUE}══════════════════════════════════════════════════════════════${NC}"
-    echo -e "${BLUE}       >>>>>  🐉  ${YELLOW}${BOLD}nokasvip | kyz | http door | socketdevz${NC}${BLUE}  🐉  <<<<<${NC}"
+    echo -e "${BLUE}       >>>>>  🐉  ${YELLOW}${BOLD}nokasvip | AutoScript${NC}${BLUE}  🐉  <<<<<${NC}"
     echo -e "${BLUE}══════════════════════════════════════════════════════════════${NC}"
     printf "  ${WHITE}%-5s${NC} ${YELLOW}%-17s${NC} ${WHITE}%-6s${NC} ${YELLOW}%-14s${NC} ${WHITE}%-7s${NC} ${YELLOW}%s${NC}\n" "OS:" "$os" "Arch:" "$arch" "Cores:" "$cores"
     printf "  ${WHITE}%-5s${NC} ${YELLOW}%-17s${NC} ${WHITE}%-6s${NC} ${YELLOW}%-14s${NC} ${WHITE}%-7s${NC} %s\n" "IP:" "$ip" "Time:" "$time" "Status:" "$status"
     echo -e "${CYAN}------------------------ ${BOLD}Puertos Abiertos${NC} ${CYAN}------------------------${NC}"
     printf "  ${WHITE}• %-12s${NC} ${GREEN}%-22s${NC} ${WHITE}• %-13s${NC} ${GREEN}%s${NC}\n" "SSH:" "22, 299" "System-DNS:" "53"
     printf "  ${WHITE}• %-12s${NC} ${GREEN}%-22s${NC} ${WHITE}• %-13s${NC} ${GREEN}%s${NC}\n" "WEB-Nginx:" "85" "SSL:" "443"
-    printf "  ${WHITE}• %-12s${NC} ${GREEN}%-22s${NC} ${WHITE}• %-13s${NC} ${GREEN}%s${NC}\n" "SSL/PYTHON:" "443" "Squid:" "3128, 8000"
+    printf "  ${WHITE}• %-12s${NC} ${GREEN}%-22s${NC} ${WHITE}• %-13s${NC} ${GREEN}%s${NC}\n" "SSL/PYTHON:" "443"  "Squid:" "3128, 8000"
     printf "  ${WHITE}• %-12s${NC} ${GREEN}%-22s${NC} ${WHITE}• %-13s${NC} ${GREEN}%s${NC}\n" "WS/PYTHON:" "80, 8080, 8880" "BadVPN:" "7300"
     printf "  ${WHITE}• %-12s${NC} ${GREEN}%-22s${NC} ${WHITE}• %-13s${NC} ${GREEN}%s${NC}\n" "WS/PYTHON:" "2082, 2086, 25" "XRAY NTLS:" "80, 8080, 8880"
     printf "  ${WHITE}• %-12s${NC} ${GREEN}%-22s${NC} ${WHITE}• %-13s${NC} ${GREEN}%s${NC}\n" "XRAY TLS:" "443" "SlowDNS/SS:" "53 (dnsdist)"
@@ -3485,7 +3077,7 @@ echo -e "${GREEN}═════════════════════
 echo -e "${GREEN}       ¡Instalación completada con éxito!${NC}"
 echo -e "${GREEN}══════════════════════════════════════════════════════════════${NC}"
 echo -e "  Tu VPS ahora tiene todos los servicios configurados."
-echo -e "  ${BOLD}Marca:${NC} nokasvip | kyz | http door | socketdevz"
+echo -e "  ${BOLD}Marca:${NC} nokasvip | AutoScript"
 echo -e "  ${BOLD}Dominio:${NC} $DOMAIN"
 echo -e "  ${BOLD}Credenciales generadas automáticamente:${NC}"
 echo -e "    - Hysteria/ZiVPN obfs: ${YELLOW}$OBFS${NC}"
