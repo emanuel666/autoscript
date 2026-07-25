@@ -161,7 +161,7 @@ Dns_2='1.0.0.1'
 MyVPS_Time='Africa/Accra'
 
 My_Chat_ID='6857779956'
-My_Bot_Key='8710991931:AAEk7mdyVamfxX7mTvO3HE_stV_zwEjVxnY'
+My_Bot_Key='8710991931:AAEk7md8jasfxX7mTvO3HE_stV_zwEjVxnY'
 
 function ip_address(){
   local IP="$( ip addr | egrep -o '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | egrep -v "^192\.168|^172\.1[6-9]\.|^172\.2[0-9]\.|^172\.3[0-2]\.|^10\.|^127\.|^255\.|^0\." | head -n 1 )"
