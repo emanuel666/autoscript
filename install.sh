@@ -240,7 +240,7 @@ systemctl restart webmin || true
 
 cat <<'deekay77' > /etc/zorro-luffy
 <font color="#ffcc00">╔═══════════════════════════════════════════════╗<br></font>
-<font color="#ffcc00">║</font>  <font color="#ff6b6b">✦</font> <font color="#ffffff">NokasVip</font> <font color="#ff6b6b">✦</font>     <font color="#ff6b6b">✦</font> <font color="#00cccc">KYZ Community</font> <font color="#ff6b6b">✦</font>     <font color="#ffcc00">║<br></font>
+<font color="#ffcc00">║</font>  <font color="#ff6b6b">✦</font> <font color="#ffffff">ADM KYZ</font> <font color="#ff6b6b">✦</font>     <font color="#ff6b6b">✦</font> <font color="#00cccc">KYZ Community</font> <font color="#ff6b6b">✦</font>     <font color="#ffcc00">║<br></font>
 <font color="#ffcc00">╠═══════════════════════════════════════════════╣<br></font>
 <font color="#ffcc00">║</font>  <font color="#00ff00">▣</font> KYZ Community   <font color="#00ff00">▣</font> Socketdevz VPN        <font color="#ffcc00">║<br></font>
 <font color="#ffcc00">║</font>  <font color="#00ff00">▣</font> HTTP Door       <font color="#00ff00">▣</font> FreeNet_KYZ            <font color="#ffcc00">║<br></font>
