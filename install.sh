@@ -1,9 +1,9 @@
 #!/bin/bash
 #
-# Copyright (c) 2026 KYZ Applications. Todos los derechos reservados.
+# Copyright (c) 2026 Hex Applications. Todos los derechos reservados.
 # Uso permitido según LICENSE. Prohibida la copia, modificación o
 # redistribución de este script sin autorización previa y por escrito
-# de KYZ Applications.
+# de Hex Applications.
 #
 set -o pipefail
 clear
@@ -65,11 +65,14 @@ mostrar_banner_instalador() {
     clear
     echo ""
     echo -e "${BLUE}══════════════════════════════════════════════════════════════${NC}"
-    echo -e "${BLUE}       >>>>>  🐉  ${YELLOW}${BOLD}Installer KyzAuto${NC}${BLUE}  ✸  ${YELLOW}${BOLD}Por NokasVip${NC}${BLUE}  🐉  <<<<<${NC}"
+    echo -e "${BLUE}       >>>>>  🐉  ${YELLOW}${BOLD}Installer HexAuto${NC}${BLUE}  ✸  ${YELLOW}${BOLD}Por NokasVip${NC}${BLUE}  🐉  <<<<<${NC}"
     echo -e "${BLUE}══════════════════════════════════════════════════════════════${NC}"
     echo -e "  ${WHITE}Dominio:${NC} ${CYAN}${DOMAIN:-N/A}${NC}"
     echo -e "${BLUE}══════════════════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}              Instalador de Script SSH Kyz Auto${NC}"
+}
+
+echo -e "${CYAN}============================================================${NC}"
+echo -e "${GREEN}              Instalador de Script SSH Hex Auto${NC}"
 echo -e "${CYAN}        (AutoScript: SSH/Xray/Hysteria/ZiVPN/UDP Custom)${NC}"
 echo -e "${CYAN}============================================================${NC}"
 echo -e "${CYAN}Sistemas Operativos Soportados:${NC}"
@@ -86,6 +89,7 @@ if [ "$SUPPORT_LEVEL" = "unsupported" ]; then
   echo -e "${CYAN}Detectado: ${ID} ${VERSION_ID}${NC}"
   exit 1
 fi
+
 
 clear
 
@@ -173,7 +177,7 @@ echo -e "${BLUE}═════════════════════�
 echo -e "${WHITE}${BOLD}                 Configuración de SlowDNS${NC}"
 echo -e "${BLUE}══════════════════════════════════════════════════════════════${NC}"
 echo ""
-read -p "$(echo -e "  ${YELLOW}🌐 Nameserver de SlowDNS${NC} ${WHITE}(enter = predeterminado):${NC} ")" -e -i "ns-name.kyzapps.app" Nameserver
+read -p "$(echo -e "  ${YELLOW}🌐 Nameserver de SlowDNS${NC} ${WHITE}(enter = predeterminado):${NC} ")" -e -i "ns-miami.Kyzapps.app" Nameserver
 echo ""
 Serverkey='819d82813183e4be3ca1ad74387e47c0c993b81c601b2d1473a3f47731c404ae'
 Serverpub='7fbd1f8aa0abfe15a7903e837f78aba39cf61d36f183bd604daa2fe4ef3b7b59'
@@ -856,7 +860,6 @@ sed -i "s|MYCHATID|6857779956|g" /usr/local/bin/telegram-admin-bot
 chmod 755 /usr/local/bin/telegram-admin-bot
 mkdir -p /tmp/bot_sessions
 chmod 755 /tmp/bot_sessions
-
 touch /etc/telegram-admins.txt
 
 systemctl daemon-reload
