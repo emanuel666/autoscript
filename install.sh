@@ -163,6 +163,486 @@ MyVPS_Time='Africa/Accra'
 My_Chat_ID='6857779956'
 My_Bot_Key='8710991931:AAEk7md8jasfxX7mTvO3HE_stV_zwEjVxnY'
 
+# --- INICIO: Sección Bot Telegram ---
+function setup_telegram_bot() {
+  echo
+  read -p "¿Deseas configurar el Bot de Telegram para gestionar usuarios remotamente? [y/N]: " -r _ans
+  if [[ ! "$_ans" =~ ^[Yy]$ ]]; then
+    echo "Omitiendo configuración de Bot Telegram."
+    return 0
+  fi
+
+  mkdir -p /etc/deekayvpn
+  CONF_FILE="/etc/deekayvpn/telegram.conf"
+  ALLOW_FILE="/etc/deekayvpn/telegram_allowed.txt"
+
+  read -p "Ingresa TOKEN del Bot (ej: 123:ABC...): " -r BOT_TOKEN
+  read -p "Ingresa el Telegram ID del admin (quien podrá añadir/quitar permisos) [tu id por defecto: $My_Chat_ID]: " -r ADMIN_ID
+  ADMIN_ID="${ADMIN_ID:-$My_Chat_ID}"
+
+  if [ -z "$BOT_TOKEN" ]; then
+    echo "TOKEN vacío. Omitiendo Bot Telegram."
+    return 0
+  fi
+  if ! [[ "$ADMIN_ID" =~ ^[0-9]+$ ]]; then
+    echo "ADMIN_ID inválido. Omitiendo Bot Telegram."
+    return 0
+  fi
+
+  # Crear file de config
+  cat > "$CONF_FILE" <<EOF_TELEGRAM_CONF
+BOT_TOKEN=$BOT_TOKEN
+ADMIN_ID=$ADMIN_ID
+EOF_TELEGRAM_CONF
+  chmod 600 "$CONF_FILE"
+
+  # Lista de IDs permitidos
+  printf '%s\n' "$ADMIN_ID" > "$ALLOW_FILE"
+  chmod 600 "$ALLOW_FILE"
+
+  # Dependencias mínimas para el bot
+  apt-get install -y python3 python3-venv python3-pip >/dev/null 2>&1 || true
+  mkdir -p /opt/deekayvpn_bot
+  python3 -m venv /opt/deekayvpn_bot/venv
+  /opt/deekayvpn_bot/venv/bin/pip install --upgrade pip >/dev/null 2>&1 || true
+  /opt/deekayvpn_bot/venv/bin/pip install "python-telegram-bot==20.4" >/dev/null 2>&1 || true
+
+  cat > /usr/local/bin/deekay_telegram_bot.py <<'EOF_TELEGRAM_BOT'
+#!/usr/bin/env python3
+import asyncio
+import logging
+import os
+import subprocess
+from pathlib import Path
+
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
+
+logging.basicConfig(
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger("deekay_telegram_bot")
+
+CONF_FILE = Path("/etc/deekayvpn/telegram.conf")
+ALLOW_FILE = Path("/etc/deekayvpn/telegram_allowed.txt")
+
+
+def _load_conf() -> dict:
+    data = {}
+    if CONF_FILE.exists():
+        for line in CONF_FILE.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            data[k.strip()] = v.strip()
+    return data
+
+
+def _allowed_ids(admin_id: str) -> set[int]:
+    ids = set()
+    if admin_id and admin_id.isdigit():
+        ids.add(int(admin_id))
+    if ALLOW_FILE.exists():
+        for line in ALLOW_FILE.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.isdigit():
+                ids.add(int(line))
+    return ids
+
+
+def _is_allowed(user_id: int, admin_id: str) -> bool:
+    return user_id in _allowed_ids(admin_id)
+
+
+def _append_allowed(new_id: int) -> None:
+    ALLOW_FILE.parent.mkdir(parents=True, exist_ok=True)
+    existing = []
+    if ALLOW_FILE.exists():
+        existing = [l.strip() for l in ALLOW_FILE.read_text(encoding="utf-8").splitlines() if l.strip()]
+    if str(new_id) not in existing:
+        with ALLOW_FILE.open("a", encoding="utf-8") as f:
+            f.write(f"{new_id}\n")
+    os.chmod(ALLOW_FILE, 0o600)
+
+
+def _remove_allowed(remove_id: int, admin_id: str) -> bool:
+    if str(remove_id) == str(admin_id):
+        return False
+    if not ALLOW_FILE.exists():
+        return True
+    kept = []
+    for line in ALLOW_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line != str(remove_id):
+            kept.append(line)
+    ALLOW_FILE.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+    os.chmod(ALLOW_FILE, 0o600)
+    return True
+
+
+def _run(cmd: list[str]) -> tuple[int, str]:
+    try:
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        return proc.returncode, proc.stdout.strip()
+    except Exception as exc:
+        return 1, str(exc)
+
+
+async def _require_allowed(update: Update, admin_id: str) -> bool:
+    user = update.effective_user
+    if not user:
+        return False
+    if not _is_allowed(user.id, admin_id):
+        await update.message.reply_text("No tienes permisos para usar este bot.")
+        return False
+    return True
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    conf = _load_conf()
+    admin_id = conf.get("ADMIN_ID", "")
+    if not await _require_allowed(update, admin_id):
+        return
+    await update.message.reply_text(
+        "Bot activo.\n"
+        "Comandos:\n"
+        "/id\n"
+        "/create_ssh <user> <pass> <days> [limit]\n"
+        "/create_xray <user> <days> [uuid]\n"
+        "/create_hysteria <auth> <days>\n"
+        "/allow <telegram_id> (solo admin)\n"
+        "/deny <telegram_id> (solo admin)"
+    )
+
+
+async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if not user:
+        return
+    await update.message.reply_text(f"Tu Telegram ID: {user.id}")
+
+
+async def allow_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    conf = _load_conf()
+    admin_id = conf.get("ADMIN_ID", "")
+    user = update.effective_user
+    if not user or str(user.id) != str(admin_id):
+        await update.message.reply_text("Solo el admin puede usar este comando.")
+        return
+    if len(context.args) != 1 or not context.args[0].isdigit():
+        await update.message.reply_text("Uso: /allow <telegram_id>")
+        return
+    new_id = int(context.args[0])
+    _append_allowed(new_id)
+    await update.message.reply_text(f"ID {new_id} añadido a permitidos.")
+
+
+async def deny_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    conf = _load_conf()
+    admin_id = conf.get("ADMIN_ID", "")
+    user = update.effective_user
+    if not user or str(user.id) != str(admin_id):
+        await update.message.reply_text("Solo el admin puede usar este comando.")
+        return
+    if len(context.args) != 1 or not context.args[0].isdigit():
+        await update.message.reply_text("Uso: /deny <telegram_id>")
+        return
+    remove_id = int(context.args[0])
+    if not _remove_allowed(remove_id, admin_id):
+        await update.message.reply_text("No puedes quitar al admin principal.")
+        return
+    await update.message.reply_text(f"ID {remove_id} eliminado de permitidos.")
+
+
+async def create_ssh(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    conf = _load_conf()
+    admin_id = conf.get("ADMIN_ID", "")
+    if not await _require_allowed(update, admin_id):
+        return
+    if len(context.args) not in (3, 4):
+        await update.message.reply_text("Uso: /create_ssh <user> <pass> <days> [limit]")
+        return
+    cmd = ["/usr/local/bin/bot_create_ssh.sh", *context.args]
+    rc, output = _run(cmd)
+    await update.message.reply_text(("OK\n" if rc == 0 else "ERROR\n") + (output or "(sin salida)"))
+
+
+async def create_xray(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    conf = _load_conf()
+    admin_id = conf.get("ADMIN_ID", "")
+    if not await _require_allowed(update, admin_id):
+        return
+    if len(context.args) not in (2, 3):
+        await update.message.reply_text("Uso: /create_xray <user> <days> [uuid]")
+        return
+    cmd = ["/usr/local/bin/bot_create_xray.sh", *context.args]
+    rc, output = _run(cmd)
+    await update.message.reply_text(("OK\n" if rc == 0 else "ERROR\n") + (output or "(sin salida)"))
+
+
+async def create_hysteria(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    conf = _load_conf()
+    admin_id = conf.get("ADMIN_ID", "")
+    if not await _require_allowed(update, admin_id):
+        return
+    if len(context.args) != 2:
+        await update.message.reply_text("Uso: /create_hysteria <auth> <days>")
+        return
+    cmd = ["/usr/local/bin/bot_create_hysteria.sh", *context.args]
+    rc, output = _run(cmd)
+    await update.message.reply_text(("OK\n" if rc == 0 else "ERROR\n") + (output or "(sin salida)"))
+
+
+def main() -> None:
+    conf = _load_conf()
+    bot_token = conf.get("BOT_TOKEN", "")
+    if not bot_token:
+        raise SystemExit("BOT_TOKEN no configurado en /etc/deekayvpn/telegram.conf")
+
+    app = Application.builder().token(bot_token).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", start))
+    app.add_handler(CommandHandler("id", myid))
+    app.add_handler(CommandHandler("allow", allow_user))
+    app.add_handler(CommandHandler("deny", deny_user))
+    app.add_handler(CommandHandler("create_ssh", create_ssh))
+    app.add_handler(CommandHandler("create_xray", create_xray))
+    app.add_handler(CommandHandler("create_hysteria", create_hysteria))
+
+    logger.info("Iniciando deekay_telegram_bot")
+    app.run_polling(close_loop=False)
+
+
+if __name__ == "__main__":
+    asyncio.set_event_loop(asyncio.new_event_loop())
+    main()
+EOF_TELEGRAM_BOT
+  chmod 700 /usr/local/bin/deekay_telegram_bot.py
+
+  cat > /usr/local/bin/bot_create_ssh.sh <<'EOF_BOT_SSH'
+#!/bin/bash
+set -o pipefail
+
+user="$1"
+pass="$2"
+days="$3"
+limit="${4:-0}"
+
+if [ -z "$user" ] || [ -z "$pass" ] || [ -z "$days" ]; then
+  echo "Uso: bot_create_ssh.sh <user> <pass> <days> [limit]"
+  exit 1
+fi
+if ! [[ "$user" =~ ^[a-zA-Z_][a-zA-Z0-9_-]{0,31}$ ]]; then
+  echo "Usuario inválido"
+  exit 1
+fi
+if [[ "$pass" =~ [[:space:]] ]]; then
+  echo "Contraseña inválida"
+  exit 1
+fi
+if ! [[ "$days" =~ ^[0-9]+$ ]] || [ "$days" -le 0 ]; then
+  echo "Días inválidos"
+  exit 1
+fi
+if ! [[ "$limit" =~ ^[0-9]+$ ]]; then
+  echo "Límite inválido"
+  exit 1
+fi
+if id "$user" >/dev/null 2>&1; then
+  echo "El usuario ya existe"
+  exit 1
+fi
+
+if ! useradd --badname -e "$(date -d "+$days days" +%Y-%m-%d)" -s /bin/false -M "$user"; then
+  echo "No se pudo crear el usuario SSH"
+  exit 1
+fi
+if ! echo "$user:$pass" | chpasswd; then
+  userdel -f "$user" 2>/dev/null || true
+  echo "No se pudo definir la contraseña"
+  exit 1
+fi
+
+mkdir -p /etc/deekayvpn
+touch /etc/deekayvpn/ssh_limits.txt
+chmod 600 /etc/deekayvpn/ssh_limits.txt
+sed -i "/^$user /d" /etc/deekayvpn/ssh_limits.txt 2>/dev/null || true
+if [ "$limit" -gt 0 ]; then
+  echo "$user $limit" >> /etc/deekayvpn/ssh_limits.txt
+fi
+
+echo "SSH creado: user=$user exp=$(date -d "+$days days" +%Y-%m-%d) limit=$limit"
+exit 0
+EOF_BOT_SSH
+  chmod 700 /usr/local/bin/bot_create_ssh.sh
+
+  cat > /usr/local/bin/bot_create_xray.sh <<'EOF_BOT_XRAY'
+#!/bin/bash
+set -o pipefail
+
+user="$1"
+days="$2"
+uuid="$3"
+
+CONFIG="/etc/xray/config.json"
+VLESS_DB="/etc/xray/vless.txt"
+VMESS_DB="/etc/xray/vmess.txt"
+TROJAN_DB="/etc/xray/trojan.txt"
+
+if [ -z "$user" ] || [ -z "$days" ]; then
+  echo "Uso: bot_create_xray.sh <user> <days> [uuid]"
+  exit 1
+fi
+if ! [[ "$user" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  echo "Usuario inválido"
+  exit 1
+fi
+if ! [[ "$days" =~ ^[0-9]+$ ]] || [ "$days" -le 0 ]; then
+  echo "Días inválidos"
+  exit 1
+fi
+if [ -z "$uuid" ]; then
+  uuid=$(cat /proc/sys/kernel/random/uuid)
+fi
+if ! [[ "$uuid" =~ ^[0-9a-fA-F-]{8,}$ ]]; then
+  echo "UUID inválido"
+  exit 1
+fi
+if [ ! -f "$CONFIG" ]; then
+  echo "No existe $CONFIG"
+  exit 1
+fi
+if grep -qw "^$user" "$VLESS_DB" "$VMESS_DB" "$TROJAN_DB" 2>/dev/null; then
+  echo "El usuario ya existe"
+  exit 1
+fi
+
+tmp="$(mktemp /tmp/xray-bot.XXXXXX)" || exit 1
+backup="$(mktemp /tmp/xray-bot-backup.XXXXXX)" || exit 1
+cp "$CONFIG" "$backup"
+trap 'rm -f "$tmp" "$backup"' EXIT
+
+VLESS_TAGS='["vless-tls-dispatcher","vless-tcp-http","vless-plain-public","vless-ws","vless-xhttp","vless-httpupgrade","vless-grpc"]'
+VMESS_TAGS='["vmess-tcp-http","vmess-ws","vmess-xhttp","vmess-httpupgrade","vmess-grpc"]'
+TROJAN_TAGS='["trojan-ws"]'
+
+if ! jq --arg uuid "$uuid" --arg user "$user" \
+  --argjson vless_tags "$VLESS_TAGS" --argjson vmess_tags "$VMESS_TAGS" --argjson trojan_tags "$TROJAN_TAGS" '
+  (.inbounds[] | select(.tag as $t | $vless_tags | index($t)) | .settings.clients) += [{"id": $uuid, "email": $user}] |
+  (.inbounds[] | select(.tag as $t | $vmess_tags | index($t)) | .settings.clients) += [{"id": $uuid, "alterId": 0, "email": $user}] |
+  (.inbounds[] | select(.tag as $t | $trojan_tags | index($t)) | .settings.clients) += [{"password": ("KyzTunnel" + ($uuid[0:6])), "email": $user}]
+' "$CONFIG" > "$tmp"; then
+  echo "Error al generar configuración Xray"
+  exit 1
+fi
+mv "$tmp" "$CONFIG"
+
+exp="$(date -d "+$days days" +%Y-%m-%d)"
+echo "$user $uuid $exp" >> "$VLESS_DB"
+echo "$user $uuid $exp" >> "$VMESS_DB"
+echo "$user KyzTunnel${uuid:0:6} $exp" >> "$TROJAN_DB"
+chmod 600 "$VLESS_DB" "$VMESS_DB" "$TROJAN_DB" "$CONFIG"
+
+if command -v xray >/dev/null 2>&1; then
+  if ! /usr/local/bin/xray run -test -config "$CONFIG" >/dev/null 2>&1; then
+    cp "$backup" "$CONFIG"
+    sed -i "\|^$user |d" "$VLESS_DB" "$VMESS_DB" "$TROJAN_DB"
+    echo "La validación de Xray falló; cambios revertidos"
+    exit 1
+  fi
+fi
+
+systemctl restart xray >/dev/null 2>&1 || true
+echo "XRAY creado: user=$user uuid=$uuid exp=$exp"
+exit 0
+EOF_BOT_XRAY
+  chmod 700 /usr/local/bin/bot_create_xray.sh
+
+  cat > /usr/local/bin/bot_create_hysteria.sh <<'EOF_BOT_HYST'
+#!/bin/bash
+set -o pipefail
+
+auth="$1"
+days="$2"
+CONFIG="/etc/hysteria/config.json"
+USER_DB="/etc/hysteria/users.txt"
+
+if [ -z "$auth" ] || [ -z "$days" ]; then
+  echo "Uso: bot_create_hysteria.sh <auth> <days>"
+  exit 1
+fi
+if [[ "$auth" =~ [[:space:]] ]]; then
+  echo "Auth inválido"
+  exit 1
+fi
+if ! [[ "$days" =~ ^[0-9]+$ ]] || [ "$days" -le 0 ]; then
+  echo "Días inválidos"
+  exit 1
+fi
+if [ ! -f "$CONFIG" ]; then
+  echo "No existe $CONFIG"
+  exit 1
+fi
+if grep -qw "^$auth" "$USER_DB" 2>/dev/null || jq -e ".inbounds[0].users[] | select(.auth_str == \"$auth\")" "$CONFIG" >/dev/null 2>&1; then
+  echo "El usuario/auth ya existe"
+  exit 1
+fi
+
+tmp="$(mktemp /tmp/hyst-bot.XXXXXX)" || exit 1
+if ! jq --arg auth "$auth" '.inbounds[0].users += [{"auth_str": $auth}]' "$CONFIG" > "$tmp"; then
+  echo "Error al actualizar configuración Hysteria"
+  rm -f "$tmp"
+  exit 1
+fi
+mv "$tmp" "$CONFIG"
+
+exp="$(date -d "+$days days" +%Y-%m-%d)"
+echo "$auth $exp" >> "$USER_DB"
+chmod 600 "$USER_DB" "$CONFIG"
+
+systemctl restart hysteria-server >/dev/null 2>&1 || true
+echo "HYSTERIA creado: auth=$auth exp=$exp"
+exit 0
+EOF_BOT_HYST
+  chmod 700 /usr/local/bin/bot_create_hysteria.sh
+
+  cat > /etc/systemd/system/deekay_telegram_bot.service <<'EOF_TELEGRAM_UNIT'
+[Unit]
+Description=Deekay VPN Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/deekayvpn_bot
+ExecStart=/opt/deekayvpn_bot/venv/bin/python /usr/local/bin/deekay_telegram_bot.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF_TELEGRAM_UNIT
+
+  chmod 600 /etc/systemd/system/deekay_telegram_bot.service
+  systemctl daemon-reload
+  systemctl enable deekay_telegram_bot.service || true
+  systemctl restart deekay_telegram_bot.service || true
+  echo "Bot Telegram instalado y servicio habilitado."
+}
+# --- FIN: Sección Bot Telegram ---
+
 function ip_address(){
   local IP="$( ip addr | egrep -o '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | egrep -v "^192\.168|^172\.1[6-9]\.|^172\.2[0-9]\.|^172\.3[0-2]\.|^10\.|^127\.|^255\.|^0\." | head -n 1 )"
   [ -z "${IP}" ] && IP="$( wget -qO- -t1 -T2 ipv4.icanhazip.com )"
@@ -3099,6 +3579,9 @@ sed -i "s|DOMAIN_PLACEHOLDER|$DOMAIN|g" /usr/local/bin/menu
 chmod +x /usr/local/bin/menu
 cp /usr/local/bin/menu /usr/bin/menu
 cp /usr/local/bin/menu /usr/bin/Menu
+
+# Configuración opcional de Bot Telegram (post-instalación)
+setup_telegram_bot
 
 # LET'S ENCRYPT RENEWAL HOOK (solo si se usó Let's Encrypt)
 if [ "$USE_LETSENCRYPT" = true ]; then
