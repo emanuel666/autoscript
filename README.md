@@ -1,4 +1,4 @@
-# Instructivo: Hex Tunnel Script (VPS AutoScript)
+# Instructivo: KYZ ADM Script (VPS AutoScript)
 
 Script desarrollado y mantenido por JotchuaDevz. Instala y configura un servidor multiprotocolo completo (SSH, Xray, Hysteria, ZiVPN, UDP Custom, SlowDNS, SlipStream) sobre un VPS limpio, con panel de administración por menú.
 
