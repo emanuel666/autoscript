@@ -1,9 +1,9 @@
 #!/bin/bash
 #
-# Copyright (c) 2026 Hex Applications. Todos los derechos reservados.
+# Copyright (c) 2026 Kyz Applications. Todos los derechos reservados.
 # Uso permitido según LICENSE. Prohibida la copia, modificación o
 # redistribución de este script sin autorización previa y por escrito
-# de Hex Applications.
+# de Kyz Applications.
 #
 set -o pipefail
 clear
@@ -65,14 +65,14 @@ mostrar_banner_instalador() {
     clear
     echo ""
     echo -e "${BLUE}══════════════════════════════════════════════════════════════${NC}"
-    echo -e "${BLUE}       >>>>>  🐉  ${YELLOW}${BOLD}Installer HexAuto${NC}${BLUE}  ✸  ${YELLOW}${BOLD}Por NokasVip${NC}${BLUE}  🐉  <<<<<${NC}"
+    echo -e "${BLUE}       >>>>>  🐉  ${YELLOW}${BOLD}Installer KyzAuto${NC}${BLUE}  ✸  ${YELLOW}${BOLD}Por Nokasvip${NC}${BLUE}  🐉  <<<<<${NC}"
     echo -e "${BLUE}══════════════════════════════════════════════════════════════${NC}"
     echo -e "  ${WHITE}Dominio:${NC} ${CYAN}${DOMAIN:-N/A}${NC}"
     echo -e "${BLUE}══════════════════════════════════════════════════════════════${NC}"
 }
 
 echo -e "${CYAN}============================================================${NC}"
-echo -e "${GREEN}              Instalador de Script SSH Hex Auto${NC}"
+echo -e "${GREEN}              Instalador de Script SSH Kyz Auto${NC}"
 echo -e "${CYAN}        (AutoScript: SSH/Xray/Hysteria/ZiVPN/UDP Custom)${NC}"
 echo -e "${CYAN}============================================================${NC}"
 echo -e "${CYAN}Sistemas Operativos Soportados:${NC}"
@@ -143,7 +143,7 @@ if [ "$USE_LETSENCRYPT" = false ]; then
         openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
           -keyout /etc/xray/xray.key \
           -out /etc/xray/xray.crt \
-          -subj "/CN=${DOMAIN}/O=HexTunnel/C=US" > /dev/null 2>&1
+          -subj "/CN=${DOMAIN}/O=KyzTunnel/C=US" > /dev/null 2>&1
     }
     step "Generando certificado autofirmado..." generar_cert_autofirmado
     echo "selfsigned" > /etc/xray/cert_type
@@ -177,7 +177,7 @@ echo -e "${BLUE}═════════════════════�
 echo -e "${WHITE}${BOLD}                 Configuración de SlowDNS${NC}"
 echo -e "${BLUE}══════════════════════════════════════════════════════════════${NC}"
 echo ""
-read -p "$(echo -e "  ${YELLOW}🌐 Nameserver de SlowDNS${NC} ${WHITE}(enter = predeterminado):${NC} ")" -e -i "ns-miami.Kyzapps.app" Nameserver
+read -p "$(echo -e "  ${YELLOW}🌐 Nameserver de SlowDNS${NC} ${WHITE}(enter = predeterminado):${NC} ")" -e -i "ns-miami.hexapps.app" Nameserver
 echo ""
 Serverkey='819d82813183e4be3ca1ad74387e47c0c993b81c601b2d1473a3f47731c404ae'
 Serverpub='7fbd1f8aa0abfe15a7903e837f78aba39cf61d36f183bd604daa2fe4ef3b7b59'
@@ -216,675 +216,6 @@ MyVPS_Time='Africa/Accra'
 
 My_Chat_ID='6857779956'
 My_Bot_Key='8710991931:AAEk7mdyVamfxX7mTvO3HE_stV_zwEjVxnY'
-# ==========================================
-# BOT DE ADMINISTRACIÓN POR TELEGRAM
-# ==========================================
-#!/bin/bash
-set -o pipefail
-umask 077
-
-# ==============================
-#  CONFIGURACIÓN (se reemplazan al final)
-# ==============================
-BOT_TOKEN="MYBOTID"
-ADMIN_CHAT_ID="MYCHATID"
-OFFSET_FILE="/tmp/bot_offset.txt"
-ADMIN_LIST="/etc/telegram-admins.txt"
-SESSION_DIR="/tmp/bot_sessions"
-mkdir -p "$SESSION_DIR"
-
-# ==============================
-#  FUNCIONES DE ENVÍO
-# ==============================
-send_msg_to() {
-    local chat="$1"
-    local msg="$2"
-    curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-        -d "chat_id=${chat}&text=${msg}&parse_mode=markdown&disable_web_page_preview=true" > /dev/null 2>&1
-}
-
-send_msg() {
-    send_msg_to "$ADMIN_CHAT_ID" "$1"
-}
-
-# ==============================
-#  OBTENER ACTUALIZACIONES
-# ==============================
-get_updates() {
-    local offset=0
-    [ -f "$OFFSET_FILE" ] && offset=$(cat "$OFFSET_FILE")
-    curl -s -X GET "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?offset=${offset}&timeout=30" | jq -r '.result[] | "\(.update_id)|\(.message.chat.id)|\(.message.text)"' 2>/dev/null
-}
-
-# ==============================
-#  AUTORIZACIÓN
-# ==============================
-is_authorized() {
-    local chat="$1"
-    [ "$chat" = "$ADMIN_CHAT_ID" ] && return 0
-    [ -f "$ADMIN_LIST" ] && grep -qx "$chat" "$ADMIN_LIST" && return 0
-    return 1
-}
-
-# ==============================
-#  FUNCIONES DE GESTIÓN DE SESIONES (para diálogos)
-# ==============================
-get_session() {
-    local chat="$1"
-    local file="$SESSION_DIR/$chat"
-    if [ -f "$file" ]; then
-        cat "$file"
-    else
-        echo ""
-    fi
-}
-
-set_session() {
-    local chat="$1"
-    local data="$2"
-    echo "$data" > "$SESSION_DIR/$chat"
-}
-
-clear_session() {
-    local chat="$1"
-    rm -f "$SESSION_DIR/$chat"
-}
-
-# ==============================
-#  COMANDOS DE ADMIN (solo dueño)
-# ==============================
-process_admin_command() {
-    local cmd="$1"
-    local chat="$2"
-    [ "$chat" != "$ADMIN_CHAT_ID" ] && return 1
-
-    local action=$(echo "$cmd" | awk '{print $1}')
-    local args=($(echo "$cmd" | cut -d' ' -f2-))
-
-    case "$action" in
-        /addadmin)
-            if [ ${#args[@]} -lt 1 ]; then
-                send_msg "❌ Uso: /addadmin <chat_id>"
-                return 0
-            fi
-            local new_id="${args[0]}"
-            if [[ ! "$new_id" =~ ^[0-9]+$ ]]; then
-                send_msg "❌ El ID debe ser numérico."
-                return 0
-            fi
-            if [ "$new_id" = "$ADMIN_CHAT_ID" ]; then
-                send_msg "⚠️ Ese es el dueño, ya tiene acceso."
-                return 0
-            fi
-            if grep -qx "$new_id" "$ADMIN_LIST" 2>/dev/null; then
-                send_msg "⚠️ El ID $new_id ya está en la lista."
-                return 0
-            fi
-            echo "$new_id" >> "$ADMIN_LIST"
-            send_msg "✅ Administrador $new_id añadido correctamente."
-            return 0
-            ;;
-        /deladmin)
-            if [ ${#args[@]} -lt 1 ]; then
-                send_msg "❌ Uso: /deladmin <chat_id>"
-                return 0
-            fi
-            local del_id="${args[0]}"
-            if [[ ! "$del_id" =~ ^[0-9]+$ ]]; then
-                send_msg "❌ El ID debe ser numérico."
-                return 0
-            fi
-            if [ "$del_id" = "$ADMIN_CHAT_ID" ]; then
-                send_msg "❌ No puedes eliminar al dueño."
-                return 0
-            fi
-            if ! grep -qx "$del_id" "$ADMIN_LIST" 2>/dev/null; then
-                send_msg "⚠️ El ID $del_id no está en la lista."
-                return 0
-            fi
-            sed -i "/^$del_id$/d" "$ADMIN_LIST"
-            send_msg "✅ Administrador $del_id eliminado."
-            return 0
-            ;;
-        /listadmins)
-            local list
-            if [ -f "$ADMIN_LIST" ]; then
-                list=$(cat "$ADMIN_LIST" | paste -sd ', ')
-            else
-                list="(vacía)"
-            fi
-            send_msg "📋 *Lista de administradores:*\nDueño: $ADMIN_CHAT_ID\nAdicionales: $list"
-            return 0
-            ;;
-    esac
-    return 1
-}
-
-# ==============================
-#  FUNCIONES DE INFORMACIÓN
-# ==============================
-get_domain() {
-    cat /etc/deekayvpn/domain.txt 2>/dev/null || curl -4 -s --max-time 2 ipv4.icanhazip.com 2>/dev/null || hostname -I | awk '{print $1}'
-}
-
-get_server_ip() {
-    curl -4 -s --max-time 2 ipv4.icanhazip.com 2>/dev/null || hostname -I | awk '{print $1}'
-}
-
-get_obfs_hysteria() {
-    jq -r '.inbounds[0].obfs' /etc/hysteria/config.json 2>/dev/null || echo "HexTunnel"
-}
-
-# Muestra la información completa de una cuenta recién creada
-show_account_info() {
-    local type="$1"   # ssh, vless, vmess, trojan, all
-    local user="$2"
-    local pass="$3"
-    local days="$4"
-    local conn_limit="${5:-0}"
-    local ip=$(get_server_ip)
-    local domain=$(get_domain)
-    local obfs=$(get_obfs_hysteria)
-
-    local msg=""
-    msg+="✅ *Cuenta creada exitosamente!*\n\n"
-    msg+="🌐 *Dominio:* $domain\n"
-    msg+="🖥️ *IP:* $ip\n"
-    msg+="👤 *Usuario:* $user\n"
-    msg+="🔑 *Contraseña:* $pass\n"
-    msg+="📅 *Expira:* $(date -d "+$days days" +"%Y-%m-%d")\n"
-    if [ "$conn_limit" -gt 0 ]; then
-        msg+="🔗 *Límite de conexiones:* $conn_limit\n"
-    else
-        msg+="🔗 *Límite de conexiones:* Sin límite\n"
-    fi
-    msg+="\n📌 *Puertos disponibles:*\n"
-    msg+="• SSH: 22, 299\n"
-    msg+="• SSL/TLS: 443\n"
-    msg+="• WebSocket: 80, 8080, 8880, 2082, 2086, 25\n"
-    msg+="• SlowDNS: 53\n"
-    msg+="• BadVPN: 7300\n"
-    msg+="• UDP Custom: 1-65535\n"
-    msg+="• Hysteria 1: 20000-50000 (obfs: $obfs)\n"
-    msg+="• Hysteria 2: 36713 (obfs: $obfs)\n"
-    msg+="• ZiVPN: 6000-19999\n"
-    msg+="\n📝 *Payload HTTP:*\n"
-    msg+="\`GET / HTTP/1.1[crlf]Host: ${domain}[crlf]Connection: upgrade[crlf]Upgrade: websocket[crlf][crlf]\`\n"
-    msg+="\n📝 *Payload mejorado:*\n"
-    msg+="\`GET / HTTP/1.1[crlf]Host: bug.com[crlf][crlf]PATCH / HTTP/1.1[crlf]Host: ${domain}[crlf]Connection: upgrade[crlf]Upgrade: websocket[crlf][crlf]\`\n"
-    msg+="\n🐌 *SlowDNS NS:* $(grep 'ExecStart=' /etc/systemd/system/server-sldns.service 2>/dev/null | sed 's/.*server\.key \([^ ]*\) .*/\1/')"
-    send_msg_to "$chat" "$msg"
-}
-
-# ==============================
-#  PROCESADOR DE COMANDOS CON DIÁLOGOS
-# ==============================
-process_command() {
-    local cmd="$1"
-    local chat="$2"
-
-    # 1. Autorización
-    if ! is_authorized "$chat"; then
-        send_msg_to "$chat" "⛔ No autorizado. Contacta al dueño del bot para obtener acceso."
-        return
-    fi
-
-    # 2. Intentar comandos de administración (solo dueño)
-    if process_admin_command "$cmd" "$chat"; then
-        return
-    fi
-
-    # 3. Manejo de sesiones activas (diálogos en curso)
-    local session=$(get_session "$chat")
-    if [ -n "$session" ]; then
-        # Si hay una sesión, procesamos el mensaje como respuesta a la pregunta actual
-        handle_session "$chat" "$cmd" "$session"
-        return
-    fi
-
-    # 4. Comandos normales (sin diálogo)
-    local action=$(echo "$cmd" | awk '{print $1}')
-    local args=($(echo "$cmd" | cut -d' ' -f2-))
-
-    case "$action" in
-        /help)
-            send_msg_to "$chat" "📌 *Comandos disponibles:*\n/addssh user pass días [limite] (o sin args para modo interactivo)\n/delssh user\n/extendssh user días\n/listssh\n/addxray user proto días [uuid] (o sin args para interactivo; proto: vless, vmess, trojan, all)\n/delxray user\n/listxray\n/addadmin <chat_id> (solo dueño)\n/deladmin <chat_id> (solo dueño)\n/listadmins (solo dueño)\n/help"
-            ;;
-        /start)
-            send_msg_to "$chat" "👋 Bienvenido al bot de administración de *HexAuto*.\nUsa /help para ver los comandos disponibles."
-            ;;
-        /addssh)
-            if [ ${#args[@]} -ge 3 ]; then
-                # Modo rápido
-                add_ssh "$chat" "${args[0]}" "${args[1]}" "${args[2]}" "${args[3]:-0}"
-            else
-                # Iniciar diálogo
-                set_session "$chat" "addssh|user"
-                send_msg_to "$chat" "👤 Ingresa el *nombre de usuario* (sin espacios, solo letras/números/guiones):"
-            fi
-            ;;
-        /delssh)
-            if [ ${#args[@]} -lt 1 ]; then
-                send_msg_to "$chat" "❌ Uso: /delssh usuario"
-                return
-            fi
-            delete_ssh "$chat" "${args[0]}"
-            ;;
-        /extendssh)
-            if [ ${#args[@]} -lt 2 ]; then
-                send_msg_to "$chat" "❌ Uso: /extendssh usuario días"
-                return
-            fi
-            extend_ssh "$chat" "${args[0]}" "${args[1]}"
-            ;;
-        /listssh)
-            list_ssh "$chat"
-            ;;
-        /addxray)
-            if [ ${#args[@]} -ge 3 ]; then
-                # Modo rápido
-                local proto="${args[1]}"
-                local days="${args[2]}"
-                local uuid="${args[3]:-}"
-                add_xray "$chat" "${args[0]}" "$proto" "$days" "$uuid"
-            else
-                # Iniciar diálogo
-                set_session "$chat" "addxray|user"
-                send_msg_to "$chat" "👤 Ingresa el *nombre de usuario* para Xray:"
-            fi
-            ;;
-        /delxray)
-            if [ ${#args[@]} -lt 1 ]; then
-                send_msg_to "$chat" "❌ Uso: /delxray usuario"
-                return
-            fi
-            delete_xray "$chat" "${args[0]}"
-            ;;
-        /listxray)
-            list_xray "$chat"
-            ;;
-        *)
-            send_msg_to "$chat" "❌ Comando desconocido. Usa /help"
-            ;;
-    esac
-}
-
-# ==============================
-#  FUNCIONES DE ACCIÓN (con sus diálogos)
-# ==============================
-
-# --- Manejo de sesiones (diálogos) ---
-handle_session() {
-    local chat="$1"
-    local input="$2"
-    local session="$3"
-
-    # El formato de sesión es: "comando|paso|datos_acumulados"
-    IFS='|' read -r command step accumulated <<< "$session"
-    accumulated="${accumulated:-}"
-
-    case "$command" in
-        addssh)
-            case "$step" in
-                user)
-                    if [[ "$input" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]]; then
-                        if id "$input" &>/dev/null; then
-                            send_msg_to "$chat" "❌ El usuario *$input* ya existe. Elige otro nombre:"
-                            return
-                        fi
-                        accumulated="$input"
-                        set_session "$chat" "addssh|pass|$accumulated"
-                        send_msg_to "$chat" "🔑 Ingresa la *contraseña* para el usuario *$input*:"
-                    else
-                        send_msg_to "$chat" "❌ Nombre inválido. Usa solo letras, números, guiones bajos, sin espacios."
-                    fi
-                    ;;
-                pass)
-                    if [ -n "$input" ] && [[ ! "$input" =~ [[:space:]] ]]; then
-                        local user="$accumulated"
-                        accumulated="${accumulated}|$input"
-                        set_session "$chat" "addssh|days|$accumulated"
-                        send_msg_to "$chat" "📅 Ingresa la *validez en días*:"
-                    else
-                        send_msg_to "$chat" "❌ Contraseña inválida (no puede estar vacía ni contener espacios)."
-                    fi
-                    ;;
-                days)
-                    if [[ "$input" =~ ^[0-9]+$ ]] && [ "$input" -gt 0 ]; then
-                        local user=$(echo "$accumulated" | cut -d'|' -f1)
-                        local pass=$(echo "$accumulated" | cut -d'|' -f2)
-                        accumulated="${accumulated}|$input"
-                        set_session "$chat" "addssh|limit|$accumulated"
-                        send_msg_to "$chat" "🔗 Ingresa el *límite de conexiones simultáneas* (0 = sin límite):"
-                    else
-                        send_msg_to "$chat" "❌ Debes ingresar un número de días mayor que 0."
-                    fi
-                    ;;
-                limit)
-                    if [[ "$input" =~ ^[0-9]+$ ]]; then
-                        local user=$(echo "$accumulated" | cut -d'|' -f1)
-                        local pass=$(echo "$accumulated" | cut -d'|' -f2)
-                        local days=$(echo "$accumulated" | cut -d'|' -f3)
-                        local limit="$input"
-                        # Crear usuario
-                        if ! useradd -e "$(date -d "+$days days" +%Y-%m-%d)" -s /bin/false -M "$user" 2>/dev/null; then
-                            send_msg_to "$chat" "❌ Falló la creación del usuario $user. Quizás ya existe o hay un error."
-                            clear_session "$chat"
-                            return
-                        fi
-                        echo "$user:$pass" | chpasswd
-                        if [ "$limit" -gt 0 ]; then
-                            sed -i "/^$user /d" /etc/deekayvpn/ssh_limits.txt
-                            echo "$user $limit" >> /etc/deekayvpn/ssh_limits.txt
-                        fi
-                        clear_session "$chat"
-                        # Mostrar info completa
-                        show_account_info "ssh" "$user" "$pass" "$days" "$limit"
-                    else
-                        send_msg_to "$chat" "❌ Ingresa un número válido (0 o mayor)."
-                    fi
-                    ;;
-            esac
-            ;;
-        addxray)
-            case "$step" in
-                user)
-                    if [[ "$input" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]]; then
-                        if grep -qw "^$input" /etc/xray/vless.txt /etc/xray/vmess.txt /etc/xray/trojan.txt 2>/dev/null; then
-                            send_msg_to "$chat" "❌ El usuario *$input* ya tiene cuenta Xray. Elige otro:"
-                            return
-                        fi
-                        accumulated="$input"
-                        set_session "$chat" "addxray|proto|$accumulated"
-                        send_msg_to "$chat" "📡 Elige el *protocolo* (vless, vmess, trojan, all):"
-                    else
-                        send_msg_to "$chat" "❌ Nombre inválido. Usa solo letras, números, guiones bajos."
-                    fi
-                    ;;
-                proto)
-                    local proto="$input"
-                    if [[ "$proto" =~ ^(vless|vmess|trojan|all)$ ]]; then
-                        accumulated="${accumulated}|$proto"
-                        set_session "$chat" "addxray|days|$accumulated"
-                        send_msg_to "$chat" "📅 Ingresa la *validez en días*:"
-                    else
-                        send_msg_to "$chat" "❌ Protocolo no válido. Usa: vless, vmess, trojan, all"
-                    fi
-                    ;;
-                days)
-                    if [[ "$input" =~ ^[0-9]+$ ]] && [ "$input" -gt 0 ]; then
-                        accumulated="${accumulated}|$input"
-                        set_session "$chat" "addxray|uuid|$accumulated"
-                        send_msg_to "$chat" "🔑 ¿Quieres usar un *UUID personalizado*? Si no, escribe *no* para generar uno automático:"
-                    else
-                        send_msg_to "$chat" "❌ Debes ingresar un número de días mayor que 0."
-                    fi
-                    ;;
-                uuid)
-                    local user=$(echo "$accumulated" | cut -d'|' -f1)
-                    local proto=$(echo "$accumulated" | cut -d'|' -f2)
-                    local days=$(echo "$accumulated" | cut -d'|' -f3)
-                    local uuid=""
-                    if [ "$input" = "no" ] || [ -z "$input" ]; then
-                        uuid=$(cat /proc/sys/kernel/random/uuid)
-                    else
-                        uuid="$input"
-                    fi
-                    clear_session "$chat"
-                    # Crear cuenta Xray
-                    create_xray_account "$chat" "$user" "$proto" "$days" "$uuid"
-                    ;;
-            esac
-            ;;
-    esac
-}
-
-# --- Funciones de creación SSH (modo rápido) ---
-add_ssh() {
-    local chat="$1"
-    local user="$2"
-    local pass="$3"
-    local days="$4"
-    local limit="${5:-0}"
-
-    if id "$user" &>/dev/null; then
-        send_msg_to "$chat" "❌ El usuario $user ya existe."
-        return
-    fi
-    if ! useradd -e "$(date -d "+$days days" +%Y-%m-%d)" -s /bin/false -M "$user" 2>/dev/null; then
-        send_msg_to "$chat" "❌ Falló la creación del usuario $user."
-        return
-    fi
-    echo "$user:$pass" | chpasswd
-    if [ "$limit" -gt 0 ]; then
-        sed -i "/^$user /d" /etc/deekayvpn/ssh_limits.txt
-        echo "$user $limit" >> /etc/deekayvpn/ssh_limits.txt
-    fi
-    show_account_info "ssh" "$user" "$pass" "$days" "$limit"
-}
-
-delete_ssh() {
-    local chat="$1"
-    local user="$2"
-    if ! id "$user" &>/dev/null; then
-        send_msg_to "$chat" "❌ El usuario $user no existe."
-        return
-    fi
-    pkill -u "$user" 2>/dev/null
-    userdel -f "$user" 2>/dev/null
-    sed -i "/^$user /d" /etc/deekayvpn/ssh_limits.txt
-    send_msg_to "$chat" "✅ Usuario SSH *$user* eliminado."
-}
-
-extend_ssh() {
-    local chat="$1"
-    local user="$2"
-    local days="$3"
-    if ! id "$user" &>/dev/null; then
-        send_msg_to "$chat" "❌ El usuario $user no existe."
-        return
-    fi
-    current=$(chage -l "$user" | awk -F": " '/Account expires/ {print $2}')
-    if [ "$current" = "never" ] || [ -z "$current" ]; then
-        new_exp=$(date -d "+$days days" +%Y-%m-%d)
-    else
-        new_exp=$(date -d "$current +$days days" +%Y-%m-%d)
-    fi
-    chage -E "$new_exp" "$user"
-    send_msg_to "$chat" "✅ Usuario *$user* extendido hasta $new_exp"
-}
-
-list_ssh() {
-    local chat="$1"
-    local list=$(awk -F: '$3>=1000 && $1!="nobody"{print $1}' /etc/passwd | paste -sd ', ')
-    send_msg_to "$chat" "📋 Usuarios SSH: $list"
-}
-
-# --- Funciones de XRAY (con creación) ---
-create_xray_account() {
-    local chat="$1"
-    local user="$2"
-    local proto="$3"
-    local days="$4"
-    local uuid="$5"
-    local exp=$(date -d "+$days days" +%Y-%m-%d)
-
-    # Verificar duplicados
-    if grep -qw "^$user" /etc/xray/vless.txt /etc/xray/vmess.txt /etc/xray/trojan.txt 2>/dev/null; then
-        send_msg_to "$chat" "❌ El usuario $user ya tiene cuenta Xray."
-        return
-    fi
-
-    local success=0
-    case "$proto" in
-        vless)
-            jq --arg uuid "$uuid" --arg user "$user" \
-                '(.inbounds[] | select(.tag | test("vless")) | .settings.clients) += [{"id":$uuid,"email":$user}]' \
-                /etc/xray/config.json > /tmp/x.json && mv /tmp/x.json /etc/xray/config.json
-            echo "$user $uuid $exp" >> /etc/xray/vless.txt
-            success=1
-            ;;
-        vmess)
-            jq --arg uuid "$uuid" --arg user "$user" \
-                '(.inbounds[] | select(.tag | test("vmess")) | .settings.clients) += [{"id":$uuid,"alterId":0,"email":$user}]' \
-                /etc/xray/config.json > /tmp/x.json && mv /tmp/x.json /etc/xray/config.json
-            echo "$user $uuid $exp" >> /etc/xray/vmess.txt
-            success=1
-            ;;
-        trojan)
-            local pass="HexTunnel${uuid:0:6}"
-            jq --arg pass "$pass" --arg user "$user" \
-                '(.inbounds[] | select(.tag == "trojan-ws") | .settings.clients) += [{"password":$pass,"email":$user}]' \
-                /etc/xray/config.json > /tmp/x.json && mv /tmp/x.json /etc/xray/config.json
-            echo "$user $pass $exp" >> /etc/xray/trojan.txt
-            success=1
-            ;;
-        all)
-            # VLESS
-            jq --arg uuid "$uuid" --arg user "$user" \
-                '(.inbounds[] | select(.tag | test("vless")) | .settings.clients) += [{"id":$uuid,"email":$user}]' \
-                /etc/xray/config.json > /tmp/x.json && mv /tmp/x.json /etc/xray/config.json
-            echo "$user $uuid $exp" >> /etc/xray/vless.txt
-            # VMESS
-            jq --arg uuid "$uuid" --arg user "$user" \
-                '(.inbounds[] | select(.tag | test("vmess")) | .settings.clients) += [{"id":$uuid,"alterId":0,"email":$user}]' \
-                /etc/xray/config.json > /tmp/x.json && mv /tmp/x.json /etc/xray/config.json
-            echo "$user $uuid $exp" >> /etc/xray/vmess.txt
-            # TROJAN
-            local pass="HexTunnel${uuid:0:6}"
-            jq --arg pass "$pass" --arg user "$user" \
-                '(.inbounds[] | select(.tag == "trojan-ws") | .settings.clients) += [{"password":$pass,"email":$user}]' \
-                /etc/xray/config.json > /tmp/x.json && mv /tmp/x.json /etc/xray/config.json
-            echo "$user $pass $exp" >> /etc/xray/trojan.txt
-            success=1
-            ;;
-        *)
-            send_msg_to "$chat" "❌ Protocolo no soportado: $proto"
-            return
-            ;;
-    esac
-
-    if [ $success -eq 1 ]; then
-        systemctl restart xray
-        # Mostrar info (adaptar según protocolo)
-        local domain=$(get_domain)
-        local ip=$(get_server_ip)
-        local insecure_param=""
-        if [ -f /etc/xray/cert_type ] && grep -q "selfsigned" /etc/xray/cert_type; then
-            insecure_param="&allowInsecure=1"
-        fi
-
-        local msg="✅ *Cuenta Xray ($proto) creada*\n"
-        msg+="👤 Usuario: $user\n"
-        msg+="📅 Expira: $exp\n"
-        msg+="🌐 Dominio: $domain\n"
-        msg+="🖥️ IP: $ip\n"
-
-        # Agregar enlaces según protocolo
-        case "$proto" in
-            vless|all)
-                msg+="\n*VLESS TLS (443)*\n"
-                msg+="\`vless://${uuid}@${domain}:443?type=ws&security=tls&encryption=none&path=%2Fvless&host=${domain}&sni=${domain}${insecure_param}#${user}-VLESS\`\n"
-                msg+="\n*VLESS NTLS (80)*\n"
-                msg+="\`vless://${uuid}@${domain}:80?type=ws&security=none&encryption=none&path=%2Fvless&host=${domain}#${user}-VLESS-NTLS\`\n"
-                ;;
-        esac
-        case "$proto" in
-            vmess|all)
-                local vmess_json_tls="{\"v\":\"2\",\"ps\":\"${user}-TLS\",\"add\":\"${domain}\",\"port\":\"443\",\"id\":\"${uuid}\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${domain}\",\"path\":\"/vmess\",\"tls\":\"tls\",\"sni\":\"${domain}\"}"
-                local vmess_json_ntls="{\"v\":\"2\",\"ps\":\"${user}-NTLS\",\"add\":\"${domain}\",\"port\":\"80\",\"id\":\"${uuid}\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${domain}\",\"path\":\"/vmess\",\"tls\":\"\"}"
-                msg+="\n*VMESS TLS (443)*\n"
-                msg+="\`vmess://$(echo -n "$vmess_json_tls" | base64 -w 0)\`\n"
-                msg+="\n*VMESS NTLS (80)*\n"
-                msg+="\`vmess://$(echo -n "$vmess_json_ntls" | base64 -w 0)\`\n"
-                ;;
-        esac
-        case "$proto" in
-            trojan|all)
-                local pass="HexTunnel${uuid:0:6}"
-                msg+="\n*TROJAN TLS (443)*\n"
-                msg+="\`trojan://${pass}@${domain}:443?type=ws&security=tls&path=%2Ftrojan&host=${domain}&sni=${domain}${insecure_param}#${user}\`\n"
-                ;;
-        esac
-
-        send_msg_to "$chat" "$msg"
-    else
-        send_msg_to "$chat" "❌ Falló la creación de la cuenta Xray."
-    fi
-}
-
-add_xray() {
-    # Modo rápido (llama a create_xray_account)
-    create_xray_account "$1" "$2" "$3" "$4" "$5"
-}
-
-delete_xray() {
-    local chat="$1"
-    local user="$2"
-    # Eliminar de config.json y de todos los .txt
-    jq '(.inbounds[].settings.clients) |= map(select(.email != "'$user'"))' /etc/xray/config.json > /tmp/x.json && mv /tmp/x.json /etc/xray/config.json
-    sed -i "/^$user /d" /etc/xray/vless.txt /etc/xray/vmess.txt /etc/xray/trojan.txt 2>/dev/null
-    systemctl restart xray
-    send_msg_to "$chat" "✅ Usuario Xray *$user* eliminado."
-}
-
-list_xray() {
-    local chat="$1"
-    local vless=$(awk '{print $1}' /etc/xray/vless.txt 2>/dev/null | paste -sd ', ')
-    local vmess=$(awk '{print $1}' /etc/xray/vmess.txt 2>/dev/null | paste -sd ', ')
-    local trojan=$(awk '{print $1}' /etc/xray/trojan.txt 2>/dev/null | paste -sd ', ')
-    send_msg_to "$chat" "📋 *VLESS:* $vless\n*VMESS:* $vmess\n*TROJAN:* $trojan"
-}
-
-# ==============================
-#  BUCLE PRINCIPAL
-# ==============================
-while true; do
-    updates=$(get_updates)
-    if [ -n "$updates" ]; then
-        echo "$updates" | while IFS='|' read -r update_id chat text; do
-            # Actualizar offset
-            echo "$((update_id + 1))" > "$OFFSET_FILE"
-            if [ -n "$text" ]; then
-                process_command "$text" "$chat" &
-            fi
-        done
-    fi
-    sleep 2
-done
-EOF_BOT
-
-sed -i "s|MYBOTID|8710991931:AAEk7mdyVamfxX7mTvO3HE_stV_zwEjVxnY|g" /usr/local/bin/telegram-admin-bot
-sed -i "s|MYCHATID|6857779956|g" /usr/local/bin/telegram-admin-bot
-
-chmod 755 /usr/local/bin/telegram-admin-bot
-mkdir -p /tmp/bot_sessions
-chmod 755 /tmp/bot_sessions
-touch /etc/telegram-admins.txt
-
-systemctl daemon-reload
-systemctl restart telegram-admin-bot.service
-# Crear servicio systemd para que el bot se ejecute siempre
-cat > /etc/systemd/system/telegram-admin-bot.service <<EOF
-[Unit]
-Description=Telegram Admin Bot for HexAuto
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/telegram-admin-bot
-Restart=always
-RestartSec=10
-LimitNOFILE=1048576
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable telegram-admin-bot.service
-systemctl start telegram-admin-bot.service
 
 function ip_address(){
   local IP="$( ip addr | egrep -o '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | egrep -v "^192\.168|^172\.1[6-9]\.|^172\.2[0-9]\.|^172\.3[0-2]\.|^10\.|^127\.|^255\.|^0\." | head -n 1 )"
@@ -957,7 +288,7 @@ ln -fs /usr/share/zoneinfo/$MyVPS_Time /etc/localtime > /dev/null 2>&1
 
 cat > /root/.profile <<'EOF_PROFILE'
 clear
-echo "Script Por NokasVip"
+echo "Script Por Nokasvip"
 echo "Escribe 'menu' Para Ver Los Comandos"
 EOF_PROFILE
 
@@ -988,15 +319,13 @@ sed -i 's|ssl=1|ssl=0|g' /etc/webmin/miniserv.conf > /dev/null 2>&1
 systemctl restart webmin >/dev/null 2>&1 || true
 
 cat <<'deekay77' > /etc/zorro-luffy
-<font color="#ffcc00">╔═══════════════════════════════════════════════╗<br></font>
-<font color="#ffcc00">║</font>  <font color="#ff6b6b">✦</font> <font color="#ffffff">ADM KYZ</font> <font color="#ff6b6b">✦</font>     <font color="#ff6b6b">✦</font> <font color="#00cccc">KYZ Community</font> <font color="#ff6b6b">✦</font>     <font color="#ffcc00">║<br></font>
-<font color="#ffcc00">╠═══════════════════════════════════════════════╣<br></font>
-<font color="#ffcc00">║</font>  <font color="#00ff00">▣</font> KYZ Community   <font color="#00ff00">▣</font> Socketdevz VPN        <font color="#ffcc00">║<br></font>
-<font color="#ffcc00">║</font>  <font color="#00ff00">▣</font> HTTP Door       <font color="#00ff00">▣</font> FreeNet_KYZ            <font color="#ffcc00">║<br></font>
-<font color="#ffcc00">╠═══════════════════════════════════════════════╣<br></font>
-<font color="#ffcc00">║</font>  <font color="#00cccc">• Powered by KYZ Community</font>                 <font color="#ffcc00">║<br></font>
-<font color="#ffcc00">║</font>  <font color="#00cccc">• Telegram: https://t.me/FreeNet_KYZ</font>         <font color="#ffcc00">║<br></font>
-<font color="#ffcc00">╚═══════════════════════════════════════════════╝<br></font>
+<br><font color="#C12267">HEX TUNNEL | VPN | SERVICE<br></font><br>
+<font color="#b3b300"> x No DDOS<br></font>
+<font color="#00cc00"> x No Torrent<br></font>
+<font color="#ff1aff"> x No Spamming<br></font>
+<font color="blue"> x No Phishing<br></font>
+<font color="#A810FF"> x No Hacking<br></font><br>
+<font color="red">• BROUGHT TO YOU BY <br></font><font color="#00cccc">https://t.me/KYZ_CANAL !<br></font>
 deekay77
 
 
@@ -1090,7 +419,7 @@ if (!LISTEN_PORT) { process.exit(1); }
 const handleConnection = (clientSocket) => {
     clientSocket.once('data', (data) => {
         const targetSocket = net.connect(TARGET_PORT, TARGET_HOST, () => {
-            clientSocket.write('HTTP/1.1 101 <font color="yellow">KYZ Tunnel</font>\r\n\r\n');
+            clientSocket.write('HTTP/1.1 101 <font color="yellow">Hex Tunnel</font>\r\n\r\n');
             clientSocket.pipe(targetSocket); targetSocket.pipe(clientSocket);
         });
         targetSocket.on('error', () => clientSocket.destroy());
@@ -2359,15 +1688,15 @@ systemctl restart vnstat > /dev/null 2>&1
 
 # MENU CREATION - FULL AND UNCOMPRESSED
 mkdir -p /usr/local/bin > /dev/null 2>&1
-sed -i '/# HEXTUNNEL_MENU_AUTOSTART_START/,/# HEXTUNNEL_MENU_AUTOSTART_END/d' ~/.bashrc 2>/dev/null || true
+sed -i '/# KYZTUNNEL_MENU_AUTOSTART_START/,/# KYZTUNNEL_MENU_AUTOSTART_END/d' ~/.bashrc 2>/dev/null || true
 cat >> ~/.bashrc <<'EOF_BASHRC_AUTOSTART'
  
-# HEXTUNNEL_MENU_AUTOSTART_START
-if [[ $- == *i* ]] && [ -z "$HEXTUNNEL_MENU_SHOWN" ]; then
-    export HEXTUNNEL_MENU_SHOWN=1
+# KYZTUNNEL_MENU_AUTOSTART_START
+if [[ $- == *i* ]] && [ -z "$KYZTUNNEL_MENU_SHOWN" ]; then
+    export KYZTUNNEL_MENU_SHOWN=1
     menu
 fi
-# HEXTUNNEL_MENU_AUTOSTART_END
+# KYZTUNNEL_MENU_AUTOSTART_END
 EOF_BASHRC_AUTOSTART
 cat > /usr/local/bin/menu <<'EOF_MENU'
 #!/bin/bash
@@ -2606,7 +1935,7 @@ add_hysteria() {
     echo "$new_pass $exp_date" >> "$HYST_USER_DB"
     systemctl restart hysteria-server
     
-    OBFS_VAL=$(jq -r '.inbounds[0].obfs' "$HYST_CONFIG" 2>/dev/null || echo "HexTunnel")
+    OBFS_VAL=$(jq -r '.inbounds[0].obfs' "$HYST_CONFIG" 2>/dev/null || echo "KyzTunnel")
     
     echo -e "\n${GREEN}✔ ¡Usuario creado exitosamente!${NC}"
     echo -e "${CYAN}--------------------------------------------------------------${NC}"
@@ -2709,7 +2038,7 @@ change_obfs_hysteria() {
     echo -e "${CYAN}══════════════════════════════════════════════════════════════${NC}"
     echo -e "                 ${BOLD}CAMBIAR OBFS DE HYSTERIA${NC}"
     echo -e "${CYAN}══════════════════════════════════════════════════════════════${NC}"
-    current_obfs=$(jq -r '.inbounds[0].obfs' "$HYST_CONFIG" 2>/dev/null || echo "HexTunnel")
+    current_obfs=$(jq -r '.inbounds[0].obfs' "$HYST_CONFIG" 2>/dev/null || echo "KyzTunnel")
     echo -e " Obfs Actual: ${YELLOW}${current_obfs}${NC}\n"
     read -rp " Ingresa Nuevo Obfs: " new_obfs
     if [ -n "$new_obfs" ]; then
@@ -2852,7 +2181,7 @@ add_xray() {
     uuid=$(cat /proc/sys/kernel/random/uuid)
   fi
 
-  pass="HexTunnel${uuid:0:6}"
+  pass="KyzTunnel${uuid:0:6}"
   
   VLESS_TAGS='["vless-tls-dispatcher","vless-tcp-http","vless-plain-public","vless-ws","vless-xhttp","vless-httpupgrade","vless-grpc","vless-grpc-ntls","vless-kcp-ntls"]'
   VMESS_TAGS='["vmess-tcp-http","vmess-ws","vmess-xhttp","vmess-httpupgrade","vmess-grpc","vmess-grpc-ntls","vmess-kcp-ntls"]'
@@ -3314,7 +2643,7 @@ service_control_menu() {
 
 # --- Backup & Restore ---
 backup_snapshot() {
-  clear; local out="/root/hextunnel_backup_$(date +%Y%m%d_%H%M%S).tar.gz"
+  clear; local out="/root/kyztunnel_backup_$(date +%Y%m%d_%H%M%S).tar.gz"
   echo -e "Empaquetando configuraciones del servidor..."
   tar -czf "$out" /etc/ssh /etc/stunnel /etc/squid /etc/hysteria /etc/hysteria2 /etc/deekayvpn /etc/systemd/system/ws-proxy@.service /etc/xray 2>/dev/null
   echo -e "\n${GREEN}✔ ¡Respaldo creado exitosamente!${NC}\nUbicación: ${YELLOW}$out${NC}"
@@ -3327,7 +2656,7 @@ restore_snapshot() {
   echo -e "                   ${BOLD}RESTAURAR CONFIGURACIÓN${NC}"
   echo -e "${CYAN}══════════════════════════════════════════════════════════════${NC}"
   shopt -s nullglob
-  backups=(/root/hextunnel_backup_*.tar.gz)
+  backups=(/root/kyztunnel_backup_*.tar.gz)
   if [ ${#backups[@]} -eq 0 ]; then echo -e "${RED}  No se encontraron archivos de respaldo en /root/.${NC}"; pause_return; return; fi
   echo -e "  Respaldos Disponibles:\n"
   for i in "${!backups[@]}"; do printf "  [${YELLOW}%02d${NC}] %s\n" $((i+1)) "$(basename "${backups[$i]}")"; done
@@ -3402,7 +2731,7 @@ change_domain() {
         openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
           -keyout /etc/xray/xray.key \
           -out /etc/xray/xray.crt \
-          -subj "/CN=${new_dom}/O=HexTunnel/C=US" > /dev/null 2>&1
+          -subj "/CN=${new_dom}/O=KyzTunnel/C=US" > /dev/null 2>&1
         echo "selfsigned" > /etc/xray/cert_type
         rm -f /etc/cron.d/certbot-renew
         NEW_CERT_TYPE="selfsigned"
@@ -3605,7 +2934,7 @@ draw_header() {
   local buf=$(buffer_mem)
 
   echo -e "${ACC}╔══════════════════════════════════════════════════════════════╗${NC}"
-  printf "${ACC}║${NC}${BG_TITLE}   🐉  Kyz Auto  ✸  Por NokasVip  🐉%-25s${NC}${ACC}║${NC}\n" ""
+  printf "${ACC}║${NC}${BG_TITLE}   🐉  Kyz Auto  ✸  Por Nokasvip  🐉%-25s${NC}${ACC}║${NC}\n" ""
   echo -e "${ACC}╠══════════════════════════════════════════════════════════════╣${NC}"
   printf "${ACC}║${NC}  ${DIM}OS:${NC}    ${WHITE}%-17s${NC} ${DIM}Arch:${NC} ${WHITE}%-11s${NC} ${DIM}Cores:${NC} ${WHITE}%-10s${NC}${ACC}║${NC}\n" "$os" "$arch" "$cores"
   printf "${ACC}║${NC}  ${DIM}IP:${NC}    ${WHITE}%-17s${NC} ${DIM}Hora:${NC} ${WHITE}%-11s${NC} ${DIM}Estado:${NC} ${GREEN}%-9s${NC}${ACC}║${NC}\n" "$ip" "$time" "$status"
@@ -3749,7 +3078,7 @@ fi
 # Finishing
 chown -R www-data:www-data /home/vps/public_html > /dev/null 2>&1
 clear
-figlet Kyz Auto Script By NokasVip -c | lolcat 2>/dev/null
+figlet Kyz Auto Script By Nokasvip -c | lolcat 2>/dev/null
 echo -e "${GREEN}       ¡Instalación Completa! El sistema necesita reiniciarse para aplicar todos los cambios! ${NC}"
 history -c > /dev/null 2>&1; rm /root/full.sh 2>/dev/null || true
 echo -e "${CYAN}           ¡El servidor se reiniciará en 10 segundos! ${NC}"
