@@ -313,48 +313,129 @@ cat > /usr/local/bin/telegram-admin-bot <<'EOF_BOT'
 set -o pipefail
 umask 077
 
-# Credenciales (se reemplazarán al final)
 BOT_TOKEN="MYBOTID"
 ADMIN_CHAT_ID="MYCHATID"
 OFFSET_FILE="/tmp/bot_offset.txt"
-LOCK_FILE="/var/run/telegram-admin-bot.lock"
+ADMIN_LIST="/etc/telegram-admins.txt"
 
-# Funciones de gestión (reutilizan la lógica del menú)
 send_msg() {
     local msg="$1"
     curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
         -d "chat_id=${ADMIN_CHAT_ID}&text=${msg}&parse_mode=markdown" > /dev/null 2>&1
 }
 
+send_msg_to() {
+    local chat="$1"
+    local msg="$2"
+    curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+        -d "chat_id=${chat}&text=${msg}&parse_mode=markdown" > /dev/null 2>&1
+}
+
 get_updates() {
     local offset=0
     [ -f "$OFFSET_FILE" ] && offset=$(cat "$OFFSET_FILE")
-    curl -s -X GET "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?offset=${offset}&timeout=30" | jq -r '.result[] | "\(.update_id)|\(.message.text)"' 2>/dev/null
+    curl -s -X GET "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?offset=${offset}&timeout=30" | jq -r '.result[] | "\(.update_id)|\(.message.chat.id)|\(.message.text)"' 2>/dev/null
+}
+
+is_authorized() {
+    local chat="$1"
+    [ "$chat" = "$ADMIN_CHAT_ID" ] && return 0
+    [ -f "$ADMIN_LIST" ] && grep -qx "$chat" "$ADMIN_LIST" && return 0
+    return 1
+}
+
+process_admin_command() {
+    local cmd="$1"
+    local chat="$2"
+    [ "$chat" != "$ADMIN_CHAT_ID" ] && return
+
+    local action=$(echo "$cmd" | awk '{print $1}')
+    local args=($(echo "$cmd" | cut -d' ' -f2-))
+
+    case "$action" in
+        /addadmin)
+            if [ ${#args[@]} -lt 1 ]; then
+                send_msg "❌ Uso: /addadmin <chat_id>"
+                return
+            fi
+            local new_id="${args[0]}"
+            if [[ ! "$new_id" =~ ^[0-9]+$ ]]; then
+                send_msg "❌ El ID debe ser numérico."
+                return
+            fi
+            if [ "$new_id" = "$ADMIN_CHAT_ID" ]; then
+                send_msg "⚠️ Ese es el dueño, ya tiene acceso."
+                return
+            fi
+            if grep -qx "$new_id" "$ADMIN_LIST" 2>/dev/null; then
+                send_msg "⚠️ El ID $new_id ya está en la lista."
+                return
+            fi
+            echo "$new_id" >> "$ADMIN_LIST"
+            send_msg "✅ Administrador $new_id añadido correctamente."
+            ;;
+        /deladmin)
+            if [ ${#args[@]} -lt 1 ]; then
+                send_msg "❌ Uso: /deladmin <chat_id>"
+                return
+            fi
+            local del_id="${args[0]}"
+            if [[ ! "$del_id" =~ ^[0-9]+$ ]]; then
+                send_msg "❌ El ID debe ser numérico."
+                return
+            fi
+            if [ "$del_id" = "$ADMIN_CHAT_ID" ]; then
+                send_msg "❌ No puedes eliminar al dueño."
+                return
+            fi
+            if ! grep -qx "$del_id" "$ADMIN_LIST" 2>/dev/null; then
+                send_msg "⚠️ El ID $del_id no está en la lista."
+                return
+            fi
+            sed -i "/^$del_id$/d" "$ADMIN_LIST"
+            send_msg "✅ Administrador $del_id eliminado."
+            ;;
+        /listadmins)
+            local list
+            if [ -f "$ADMIN_LIST" ]; then
+                list=$(cat "$ADMIN_LIST" | paste -sd ', ')
+            else
+                list="(vacía)"
+            fi
+            send_msg "📋 *Lista de administradores:*\nDueño: $ADMIN_CHAT_ID\nAdicionales: $list"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+    return 0
 }
 
 process_command() {
     local cmd="$1"
     local chat="$2"
-    # Solo permite comandos del admin
-    if [ "$chat" != "$ADMIN_CHAT_ID" ]; then
-        send_msg "⛔ No autorizado."
+
+    if ! is_authorized "$chat"; then
+        send_msg_to "$chat" "⛔ No autorizado."
         return
     fi
 
-    # Parsear comando
+    if process_admin_command "$cmd" "$chat"; then
+        return
+    fi
+
     local action=$(echo "$cmd" | awk '{print $1}')
     local args=($(echo "$cmd" | cut -d' ' -f2-))
 
     case "$action" in
         /addssh)
-            # Uso: /addssh <user> <pass> <días> [limite_conexiones]
             if [ ${#args[@]} -lt 3 ]; then
-                send_msg "❌ Uso: /addssh usuario contraseña días [limite]"
+                send_msg_to "$chat" "❌ Uso: /addssh usuario contraseña días [limite]"
                 return
             fi
             local u="${args[0]}"; local p="${args[1]}"; local d="${args[2]}"; local l="${args[3]:-0}"
             if id "$u" &>/dev/null; then
-                send_msg "❌ El usuario $u ya existe."
+                send_msg_to "$chat" "❌ El usuario $u ya existe."
                 return
             fi
             useradd -e "$(date -d "+$d days" +%Y-%m-%d)" -s /bin/false -M "$u" 2>/dev/null
@@ -364,36 +445,34 @@ process_command() {
                     sed -i "/^$u /d" /etc/deekayvpn/ssh_limits.txt
                     echo "$u $l" >> /etc/deekayvpn/ssh_limits.txt
                 fi
-                send_msg "✅ Usuario SSH *$u* creado (expira en $d días)"
+                send_msg_to "$chat" "✅ Usuario SSH *$u* creado (expira en $d días)"
             else
-                send_msg "❌ Falló la creación de $u"
+                send_msg_to "$chat" "❌ Falló la creación de $u"
             fi
             ;;
         /delssh)
-            # /delssh <user>
             if [ ${#args[@]} -lt 1 ]; then
-                send_msg "❌ Uso: /delssh usuario"
+                send_msg_to "$chat" "❌ Uso: /delssh usuario"
                 return
             fi
             local u="${args[0]}"
             if ! id "$u" &>/dev/null; then
-                send_msg "❌ El usuario $u no existe."
+                send_msg_to "$chat" "❌ El usuario $u no existe."
                 return
             fi
             pkill -u "$u" 2>/dev/null
             userdel -f "$u" 2>/dev/null
             sed -i "/^$u /d" /etc/deekayvpn/ssh_limits.txt
-            send_msg "✅ Usuario SSH *$u* eliminado."
+            send_msg_to "$chat" "✅ Usuario SSH *$u* eliminado."
             ;;
         /extendssh)
-            # /extendssh <user> <días>
             if [ ${#args[@]} -lt 2 ]; then
-                send_msg "❌ Uso: /extendssh usuario días"
+                send_msg_to "$chat" "❌ Uso: /extendssh usuario días"
                 return
             fi
             local u="${args[0]}"; local d="${args[1]}"
             if ! id "$u" &>/dev/null; then
-                send_msg "❌ El usuario $u no existe."
+                send_msg_to "$chat" "❌ El usuario $u no existe."
                 return
             fi
             current=$(chage -l "$u" | awk -F": " '/Account expires/ {print $2}')
@@ -403,44 +482,40 @@ process_command() {
                 new_exp=$(date -d "$current +$d days" +%Y-%m-%d)
             fi
             chage -E "$new_exp" "$u"
-            send_msg "✅ Usuario *$u* extendido hasta $new_exp"
+            send_msg_to "$chat" "✅ Usuario *$u* extendido hasta $new_exp"
             ;;
         /listssh)
             local list=$(awk -F: '$3>=1000 && $1!="nobody"{print $1}' /etc/passwd | paste -sd ', ')
-            send_msg "📋 Usuarios SSH: $list"
+            send_msg_to "$chat" "📋 Usuarios SSH: $list"
             ;;
         /addxray)
-            # /addxray <user> <protocolo> <días> [uuid]
-            # protocolo: vless, vmess, trojan, all
             if [ ${#args[@]} -lt 3 ]; then
-                send_msg "❌ Uso: /addxray usuario protocolo días [uuid]"
+                send_msg_to "$chat" "❌ Uso: /addxray usuario protocolo días [uuid]"
                 return
             fi
             local u="${args[0]}"; local proto="${args[1]}"; local d="${args[2]}"; local uuid="${args[3]:-}"
             if [ -z "$uuid" ]; then
                 uuid=$(cat /proc/sys/kernel/random/uuid)
             fi
-            # Verificar si ya existe en alguna DB
             if grep -qw "^$u" /etc/xray/vless.txt /etc/xray/vmess.txt /etc/xray/trojan.txt 2>/dev/null; then
-                send_msg "❌ El usuario $u ya tiene cuenta Xray."
+                send_msg_to "$chat" "❌ El usuario $u ya tiene cuenta Xray."
                 return
             fi
             exp=$(date -d "+$d days" +%Y-%m-%d)
-            # Según protocolo, modificar config.json y agregar a la DB correspondiente
             case "$proto" in
                 vless)
                     jq --arg uuid "$uuid" --arg user "$u" \
                         '(.inbounds[] | select(.tag | test("vless")) | .settings.clients) += [{"id":$uuid,"email":$user}]' \
                         /etc/xray/config.json > /tmp/x.json && mv /tmp/x.json /etc/xray/config.json
                     echo "$u $uuid $exp" >> /etc/xray/vless.txt
-                    send_msg "✅ VLESS *$u* creado (UUID: $uuid)"
+                    send_msg_to "$chat" "✅ VLESS *$u* creado (UUID: $uuid)"
                     ;;
                 vmess)
                     jq --arg uuid "$uuid" --arg user "$u" \
                         '(.inbounds[] | select(.tag | test("vmess")) | .settings.clients) += [{"id":$uuid,"alterId":0,"email":$user}]' \
                         /etc/xray/config.json > /tmp/x.json && mv /tmp/x.json /etc/xray/config.json
                     echo "$u $uuid $exp" >> /etc/xray/vmess.txt
-                    send_msg "✅ VMESS *$u* creado (UUID: $uuid)"
+                    send_msg_to "$chat" "✅ VMESS *$u* creado (UUID: $uuid)"
                     ;;
                 trojan)
                     local pass="HexTunnel${uuid:0:6}"
@@ -448,10 +523,9 @@ process_command() {
                         '(.inbounds[] | select(.tag == "trojan-ws") | .settings.clients) += [{"password":$pass,"email":$user}]' \
                         /etc/xray/config.json > /tmp/x.json && mv /tmp/x.json /etc/xray/config.json
                     echo "$u $pass $exp" >> /etc/xray/trojan.txt
-                    send_msg "✅ TROJAN *$u* creado (pass: $pass)"
+                    send_msg_to "$chat" "✅ TROJAN *$u* creado (pass: $pass)"
                     ;;
                 all)
-                    # Crear los tres
                     jq --arg uuid "$uuid" --arg user "$u" \
                         '(.inbounds[] | select(.tag | test("vless")) | .settings.clients) += [{"id":$uuid,"email":$user}]' \
                         /etc/xray/config.json > /tmp/x.json && mv /tmp/x.json /etc/xray/config.json
@@ -465,52 +539,48 @@ process_command() {
                         '(.inbounds[] | select(.tag == "trojan-ws") | .settings.clients) += [{"password":$pass,"email":$user}]' \
                         /etc/xray/config.json > /tmp/x.json && mv /tmp/x.json /etc/xray/config.json
                     echo "$u $pass $exp" >> /etc/xray/trojan.txt
-                    send_msg "✅ VLESS, VMESS y TROJAN para *$u* creados (UUID: $uuid)"
+                    send_msg_to "$chat" "✅ VLESS, VMESS y TROJAN para *$u* creados (UUID: $uuid)"
                     ;;
                 *)
-                    send_msg "❌ Protocolo no soportado: $proto (vless, vmess, trojan, all)"
+                    send_msg_to "$chat" "❌ Protocolo no soportado: $proto (vless, vmess, trojan, all)"
                     return
                     ;;
             esac
             systemctl restart xray
             ;;
         /delxray)
-            # /delxray <user>
             if [ ${#args[@]} -lt 1 ]; then
-                send_msg "❌ Uso: /delxray usuario"
+                send_msg_to "$chat" "❌ Uso: /delxray usuario"
                 return
             fi
             local u="${args[0]}"
-            # Eliminar de todas las DBs y del JSON
             jq '(.inbounds[].settings.clients) |= map(select(.email != "'$u'"))' /etc/xray/config.json > /tmp/x.json && mv /tmp/x.json /etc/xray/config.json
             sed -i "/^$u /d" /etc/xray/vless.txt /etc/xray/vmess.txt /etc/xray/trojan.txt 2>/dev/null
             systemctl restart xray
-            send_msg "✅ Usuario Xray *$u* eliminado."
+            send_msg_to "$chat" "✅ Usuario Xray *$u* eliminado."
             ;;
         /listxray)
             local vless=$(awk '{print $1}' /etc/xray/vless.txt 2>/dev/null | paste -sd ', ')
             local vmess=$(awk '{print $1}' /etc/xray/vmess.txt 2>/dev/null | paste -sd ', ')
             local trojan=$(awk '{print $1}' /etc/xray/trojan.txt 2>/dev/null | paste -sd ', ')
-            send_msg "📋 VLESS: $vless\nVMESS: $vmess\nTROJAN: $trojan"
+            send_msg_to "$chat" "📋 VLESS: $vless\nVMESS: $vmess\nTROJAN: $trojan"
             ;;
         /help)
-            send_msg "📌 *Comandos disponibles:*\n/addssh user pass días [limite]\n/delssh user\n/extendssh user días\n/listssh\n/addxray user proto días [uuid]\n/delxray user\n/listxray\n/help"
+            send_msg_to "$chat" "📌 *Comandos disponibles:*\n/addssh user pass días [limite]\n/delssh user\n/extendssh user días\n/listssh\n/addxray user proto días [uuid]\n/delxray user\n/listxray\n/addadmin <chat_id> (solo dueño)\n/deladmin <chat_id> (solo dueño)\n/listadmins (solo dueño)\n/help"
             ;;
         *)
-            send_msg "❌ Comando desconocido. Usa /help"
+            send_msg_to "$chat" "❌ Comando desconocido. Usa /help"
             ;;
     esac
 }
 
-# Bucle principal (polling)
 while true; do
     updates=$(get_updates)
     if [ -n "$updates" ]; then
-        echo "$updates" | while IFS='|' read -r update_id text; do
-            # Actualizar offset
+        echo "$updates" | while IFS='|' read -r update_id chat text; do
             echo "$((update_id + 1))" > "$OFFSET_FILE"
             if [ -n "$text" ]; then
-                process_command "$text" "$ADMIN_CHAT_ID" &
+                process_command "$text" "$chat" &
             fi
         done
     fi
@@ -518,11 +588,15 @@ while true; do
 done
 EOF_BOT
 
-# Reemplazar credenciales en el bot
-sed -i "s|MYBOTID|$My_Bot_Key|g" /usr/local/bin/telegram-admin-bot
-sed -i "s|MYCHATID|$My_Chat_ID|g" /usr/local/bin/telegram-admin-bot
-chmod 755 /usr/local/bin/telegram-admin-bot
+sed -i "s|MYBOTID|8710991931:AAEk7mdyVamfxX7mTvO3HE_stV_zwEjVxnY|g" /usr/local/bin/telegram-admin-bot
+sed -i "s|MYCHATID|6857779956|g" /usr/local/bin/telegram-admin-bot
 
+chmod 755 /usr/local/bin/telegram-admin-bot
+touch /etc/telegram-admins.txt
+
+systemctl daemon-reload
+systemctl restart telegram-admin-bot.service
+systemctl status telegram-admin-bot.service
 # Crear servicio systemd para que el bot se ejecute siempre
 cat > /etc/systemd/system/telegram-admin-bot.service <<EOF
 [Unit]
