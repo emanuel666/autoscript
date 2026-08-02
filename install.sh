@@ -864,7 +864,6 @@ touch /etc/telegram-admins.txt
 
 systemctl daemon-reload
 systemctl restart telegram-admin-bot.service
-systemctl status telegram-admin-bot.service
 # Crear servicio systemd para que el bot se ejecute siempre
 cat > /etc/systemd/system/telegram-admin-bot.service <<EOF
 [Unit]
