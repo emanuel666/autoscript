@@ -68,7 +68,7 @@ mostrar_banner_instalador() {
     echo -e "${BLUE}       >>>>>  🐉  ${YELLOW}${BOLD}Installer KyzAuto${NC}${BLUE}  ✸  ${YELLOW}${BOLD}Por NokasVip${NC}${BLUE}  🐉  <<<<<${NC}"
     echo -e "${BLUE}══════════════════════════════════════════════════════════════${NC}"
     echo -e "  ${WHITE}Dominio:${NC} ${CYAN}${DOMAIN:-N/A}${NC}"
-    echo -e "${BLUE}═══════════╗"
+    echo -e "${BLUE}══════════════════════════════════════════════════════════════${NC}"
 echo -e "${GREEN}              Instalador de Script SSH Kyz Auto${NC}"
 echo -e "${CYAN}        (AutoScript: SSH/Xray/Hysteria/ZiVPN/UDP Custom)${NC}"
 echo -e "${CYAN}============================================================${NC}"
