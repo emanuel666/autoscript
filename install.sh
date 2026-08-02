@@ -218,7 +218,7 @@ My_Chat_ID='6857779956'
 My_Bot_Key='8710991931:AAEk7mdyVamfxX7mTvO3HE_stV_zwEjVxnY'
 
 # ==========================================
-# BOT DE ADMINISTRACIÓN POR TELEGRAM (KYZ)
+# BOT DE ADMINISTRACIÓN POR TELEGRAM (KYZ) - FINAL
 # ==========================================
 cat > /usr/local/bin/telegram-admin-bot <<'EOF_BOT'
 #!/bin/bash
@@ -226,30 +226,27 @@ set -o pipefail
 umask 077
 
 # ==============================
-#  CONFIGURACIÓN
+# CONFIGURACIÓN
 # ==============================
 BOT_TOKEN="MYBOTID"
 OWNER_CHAT_ID="MYCHATID"
 OFFSET_FILE="/tmp/bot_offset.txt"
-ADMIN_FILE="/etc/telegram-admins.txt"        # chat_id:nombre
-COUNTER_FILE="/etc/telegram-user-counter.txt" # chat_id:nombre:contador
-LIMIT_FILE="/etc/telegram-limit.txt"         # límite de usuarios por admin (por defecto 5)
+ADMIN_FILE="/etc/telegram-admins.txt"
+COUNTER_FILE="/etc/telegram-user-counter.txt"
+LIMIT_FILE="/etc/telegram-limit.txt"
 SESSION_DIR="/tmp/bot_sessions"
 mkdir -p "$SESSION_DIR"
 
 # ==============================
-#  FUNCIONES AUXILIARES
+# FUNCIONES DE ENVÍO
 # ==============================
 send_msg() {
     local chat="$1"
     local text="$2"
+    # Usamos printf para interpretar saltos de línea y caracteres especiales
+    local msg=$(printf "%b" "$text")
     curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-        -d "chat_id=${chat}&text=${text}&parse_mode=markdown&disable_web_page_preview=true" > /dev/null 2>&1
-}
-
-send_typing() {
-    curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendChatAction" \
-        -d "chat_id=$1&action=typing" > /dev/null 2>&1
+        -d "chat_id=${chat}&text=${msg}&parse_mode=markdown&disable_web_page_preview=true" > /dev/null 2>&1
 }
 
 get_updates() {
@@ -259,11 +256,9 @@ get_updates() {
 }
 
 # ==============================
-#  GESTIÓN DE ADMINISTRADORES
+# GESTIÓN DE ADMINISTRADORES
 # ==============================
-is_owner() {
-    [ "$1" = "$OWNER_CHAT_ID" ]
-}
+is_owner() { [ "$1" = "$OWNER_CHAT_ID" ]; }
 
 is_admin() {
     local chat="$1"
@@ -274,23 +269,18 @@ is_admin() {
 
 get_admin_name() {
     local chat="$1"
-    [ "$chat" = "$OWNER_CHAT_ID" ] && echo "owner"
+    [ "$chat" = "$OWNER_CHAT_ID" ] && echo "Dueño"
     grep "^$chat:" "$ADMIN_FILE" 2>/dev/null | cut -d: -f2
 }
 
 get_admin_counter() {
     local chat="$1"
     local line=$(grep "^$chat:" "$COUNTER_FILE" 2>/dev/null)
-    if [ -n "$line" ]; then
-        echo "$line" | cut -d: -f3
-    else
-        echo "0"
-    fi
+    [ -n "$line" ] && echo "$line" | cut -d: -f3 || echo "0"
 }
 
 set_admin_counter() {
-    local chat="$1"
-    local count="$2"
+    local chat="$1"; local count="$2"
     local name=$(get_admin_name "$chat")
     sed -i "/^$chat:/d" "$COUNTER_FILE" 2>/dev/null
     echo "$chat:$name:$count" >> "$COUNTER_FILE"
@@ -310,11 +300,11 @@ get_admin_limit() {
         grep "^$chat:" "$LIMIT_FILE" | cut -d: -f2
         return
     }
-    echo "5"  # límite por defecto
+    echo "5"
 }
 
 # ==============================
-#  GESTIÓN DE SESIONES (diálogos)
+# GESTIÓN DE SESIONES
 # ==============================
 get_session() {
     local chat="$1"
@@ -323,8 +313,7 @@ get_session() {
 }
 
 set_session() {
-    local chat="$1"
-    local data="$2"
+    local chat="$1"; local data="$2"
     echo "$data" > "$SESSION_DIR/$chat"
 }
 
@@ -334,7 +323,7 @@ clear_session() {
 }
 
 # ==============================
-#  FUNCIONES DE INFORMACIÓN
+# FUNCIONES DE INFORMACIÓN
 # ==============================
 get_domain() {
     cat /etc/deekayvpn/domain.txt 2>/dev/null || curl -4 -s --max-time 2 ipv4.icanhazip.com 2>/dev/null || hostname -I | awk '{print $1}'
@@ -361,15 +350,14 @@ get_pubkey() {
 }
 
 # ==============================
-#  MOSTRAR INFORMACIÓN COMPLETA DE UNA CUENTA
+# MOSTRAR INFORMACIÓN COMPLETA DE CUENTA
 # ==============================
 show_account_info() {
     local chat="$1"
-    local type="$2"   # ssh, vless, vmess, trojan, all
-    local user="$3"
-    local pass="$4"
-    local days="$5"
-    local conn_limit="${6:-0}"
+    local user="$2"
+    local pass="$3"
+    local days="$4"
+    local conn_limit="${5:-0}"
     local ip=$(get_server_ip)
     local domain=$(get_domain)
     local obfs=$(get_obfs_hysteria)
@@ -377,18 +365,17 @@ show_account_info() {
     local ns=$(get_slowdns_ns)
     local pubkey=$(get_pubkey)
 
-    local msg="✅ *Cuenta creada exitosamente!*\n\n"
+    local msg=""
+    msg+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    msg+="✅ *CUENTA CREADA EXITOSAMENTE*\n"
+    msg+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     msg+="🌐 *Dominio:* $domain\n"
     msg+="🖥️ *IP:* $ip\n"
     msg+="👤 *Usuario:* $user\n"
     msg+="🔑 *Contraseña:* $pass\n"
-    msg+="📅 *Expira:* $(date -d "+$days days" +"%Y-%m-%d")\n"
-    if [ "$conn_limit" -gt 0 ]; then
-        msg+="🔗 *Límite de conexiones:* $conn_limit\n"
-    else
-        msg+="🔗 *Límite de conexiones:* Sin límite\n"
-    fi
-    msg+="\n📌 *Puertos disponibles:*\n"
+    msg+="📅 *Expira:* $(date -d "+$days days" +%Y-%m-%d)\n"
+    msg+="🔗 *Límite:* $([ "$conn_limit" -gt 0 ] && echo "$conn_limit" || echo "Sin límite")\n\n"
+    msg+="━━━━━━━ *PUERTOS* ━━━━━━━\n"
     msg+="• SSH: 22, 299\n"
     msg+="• SSL/TLS: 443\n"
     msg+="• WebSocket: 80, 8080, 8880, 2082, 2086, 25\n"
@@ -397,25 +384,21 @@ show_account_info() {
     msg+="• UDP Custom: 1-65535\n"
     msg+="• Hysteria 1: 20000-50000 (obfs: $obfs)\n"
     msg+="• Hysteria 2: 36713 (obfs: $obfs2)\n"
-    msg+="• ZiVPN: 6000-19999\n"
-    msg+="\n📝 *Payload HTTP:*\n"
-    msg+="\`GET / HTTP/1.1[crlf]Host: ${domain}[crlf]Connection: upgrade[crlf]Upgrade: websocket[crlf][crlf]\`\n"
-    msg+="\n📝 *Payload mejorado:*\n"
-    msg+="\`GET / HTTP/1.1[crlf]Host: bug.com[crlf][crlf]PATCH / HTTP/1.1[crlf]Host: ${domain}[crlf]Connection: upgrade[crlf]Upgrade: websocket[crlf][crlf]\`\n"
-    msg+="\n🐌 *SlowDNS NS:* $ns\n"
-    msg+="🔑 *DNS PUB KEY:* $pubkey"
+    msg+="• ZiVPN: 6000-19999\n\n"
+    msg+="━━━━━━━ *PAYLOADS* ━━━━━━━\n"
+    msg+="HTTP:\n\`GET / HTTP/1.1[crlf]Host: ${domain}[crlf]Connection: upgrade[crlf]Upgrade: websocket[crlf][crlf]\`\n\n"
+    msg+="Mejorado:\n\`GET / HTTP/1.1[crlf]Host: bug.com[crlf][crlf]PATCH / HTTP/1.1[crlf]Host: ${domain}[crlf]Connection: upgrade[crlf]Upgrade: websocket[crlf][crlf]\`\n\n"
+    msg+="━━━━━━━ *SLOWDNS* ━━━━━━━\n"
+    msg+="• NS: $ns\n"
+    msg+="• PUB KEY: $pubkey"
     send_msg "$chat" "$msg"
 }
 
 # ==============================
-#  FUNCIONES DE GESTIÓN DE USUARIOS SSH
+# FUNCIONES SSH
 # ==============================
 create_ssh_user() {
-    local chat="$1"
-    local user="$2"
-    local pass="$3"
-    local days="$4"
-    local limit="${5:-0}"
+    local chat="$1"; local user="$2"; local pass="$3"; local days="$4"; local limit="${5:-0}"
     if id "$user" &>/dev/null; then
         send_msg "$chat" "❌ El usuario *$user* ya existe."
         return 1
@@ -430,13 +413,12 @@ create_ssh_user() {
         sed -i "/^$user /d" /etc/deekayvpn/ssh_limits.txt
         echo "$user $limit" >> /etc/deekayvpn/ssh_limits.txt
     fi
-    show_account_info "$chat" "ssh" "$user" "$pass" "$days" "$limit"
+    show_account_info "$chat" "$user" "$pass" "$days" "$limit"
     return 0
 }
 
 delete_ssh_user() {
-    local chat="$1"
-    local user="$2"
+    local chat="$1"; local user="$2"
     if ! id "$user" &>/dev/null; then
         send_msg "$chat" "❌ El usuario $user no existe."
         return
@@ -444,13 +426,11 @@ delete_ssh_user() {
     pkill -u "$user" 2>/dev/null
     userdel -f "$user" 2>/dev/null
     sed -i "/^$user /d" /etc/deekayvpn/ssh_limits.txt
-    send_msg "$chat" "✅ Usuario SSH *$user* eliminado."
+    send_msg "$chat" "✅ Usuario SSH *$user* eliminado correctamente."
 }
 
 extend_ssh_user() {
-    local chat="$1"
-    local user="$2"
-    local days="$3"
+    local chat="$1"; local user="$2"; local days="$3"
     if ! id "$user" &>/dev/null; then
         send_msg "$chat" "❌ El usuario $user no existe."
         return
@@ -468,21 +448,16 @@ extend_ssh_user() {
 list_ssh_users() {
     local chat="$1"
     local list=$(awk -F: '$3>=1000 && $1!="nobody"{print $1}' /etc/passwd | paste -sd ', ')
-    send_msg "$chat" "📋 Usuarios SSH: $list"
+    send_msg "$chat" "📋 *Usuarios SSH:* $list"
 }
 
 # ==============================
-#  FUNCIONES DE GESTIÓN DE USUARIOS XRAY
+# FUNCIONES XRAY
 # ==============================
 create_xray_user() {
-    local chat="$1"
-    local user="$2"
-    local proto="$3"
-    local days="$4"
-    local uuid="$5"
+    local chat="$1"; local user="$2"; local proto="$3"; local days="$4"; local uuid="$5"
     local exp=$(date -d "+$days days" +%Y-%m-%d)
 
-    # Verificar duplicados
     if grep -qw "^$user" /etc/xray/vless.txt /etc/xray/vmess.txt /etc/xray/trojan.txt 2>/dev/null; then
         send_msg "$chat" "❌ El usuario $user ya tiene cuenta Xray."
         return
@@ -513,17 +488,14 @@ create_xray_user() {
             success=1
             ;;
         all)
-            # VLESS
             jq --arg uuid "$uuid" --arg user "$user" \
                 '(.inbounds[] | select(.tag | test("vless")) | .settings.clients) += [{"id":$uuid,"email":$user}]' \
                 /etc/xray/config.json > /tmp/x.json && mv /tmp/x.json /etc/xray/config.json
             echo "$user $uuid $exp" >> /etc/xray/vless.txt
-            # VMESS
             jq --arg uuid "$uuid" --arg user "$user" \
                 '(.inbounds[] | select(.tag | test("vmess")) | .settings.clients) += [{"id":$uuid,"alterId":0,"email":$user}]' \
                 /etc/xray/config.json > /tmp/x.json && mv /tmp/x.json /etc/xray/config.json
             echo "$user $uuid $exp" >> /etc/xray/vmess.txt
-            # TROJAN
             local pass="KyzTunnel${uuid:0:6}"
             jq --arg pass "$pass" --arg user "$user" \
                 '(.inbounds[] | select(.tag == "trojan-ws") | .settings.clients) += [{"password":$pass,"email":$user}]' \
@@ -539,43 +511,42 @@ create_xray_user() {
 
     if [ $success -eq 1 ]; then
         systemctl restart xray
-        # Mostrar info específica de Xray
         local domain=$(get_domain)
         local ip=$(get_server_ip)
         local insecure_param=""
-        if [ -f /etc/xray/cert_type ] && grep -q "selfsigned" /etc/xray/cert_type; then
-            insecure_param="&allowInsecure=1"
-        fi
+        [ -f /etc/xray/cert_type ] && grep -q "selfsigned" /etc/xray/cert_type && insecure_param="&allowInsecure=1"
 
-        local msg="✅ *Cuenta Xray ($proto) creada*\n"
+        local msg=""
+        msg+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        msg+="✅ *CUENTA XRAY ($proto) CREADA*\n"
+        msg+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         msg+="👤 Usuario: $user\n"
         msg+="📅 Expira: $exp\n"
         msg+="🌐 Dominio: $domain\n"
-        msg+="🖥️ IP: $ip\n"
+        msg+="🖥️ IP: $ip\n\n"
 
-        # Enlaces según protocolo
         case "$proto" in
             vless|all)
-                msg+="\n*VLESS TLS (443)*\n"
-                msg+="\`vless://${uuid}@${domain}:443?type=ws&security=tls&encryption=none&path=%2Fvless&host=${domain}&sni=${domain}${insecure_param}#${user}-VLESS\`\n"
-                msg+="\n*VLESS NTLS (80)*\n"
-                msg+="\`vless://${uuid}@${domain}:80?type=ws&security=none&encryption=none&path=%2Fvless&host=${domain}#${user}-VLESS-NTLS\`\n"
+                msg+="━ *VLESS TLS (443)* ━\n"
+                msg+="\`vless://${uuid}@${domain}:443?type=ws&security=tls&encryption=none&path=%2Fvless&host=${domain}&sni=${domain}${insecure_param}#${user}-VLESS\`\n\n"
+                msg+="━ *VLESS NTLS (80)* ━\n"
+                msg+="\`vless://${uuid}@${domain}:80?type=ws&security=none&encryption=none&path=%2Fvless&host=${domain}#${user}-VLESS-NTLS\`\n\n"
                 ;;
         esac
         case "$proto" in
             vmess|all)
                 local vmess_json_tls="{\"v\":\"2\",\"ps\":\"${user}-TLS\",\"add\":\"${domain}\",\"port\":\"443\",\"id\":\"${uuid}\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${domain}\",\"path\":\"/vmess\",\"tls\":\"tls\",\"sni\":\"${domain}\"}"
                 local vmess_json_ntls="{\"v\":\"2\",\"ps\":\"${user}-NTLS\",\"add\":\"${domain}\",\"port\":\"80\",\"id\":\"${uuid}\",\"aid\":\"0\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${domain}\",\"path\":\"/vmess\",\"tls\":\"\"}"
-                msg+="\n*VMESS TLS (443)*\n"
-                msg+="\`vmess://$(echo -n "$vmess_json_tls" | base64 -w 0)\`\n"
-                msg+="\n*VMESS NTLS (80)*\n"
-                msg+="\`vmess://$(echo -n "$vmess_json_ntls" | base64 -w 0)\`\n"
+                msg+="━ *VMESS TLS (443)* ━\n"
+                msg+="\`vmess://$(echo -n "$vmess_json_tls" | base64 -w 0)\`\n\n"
+                msg+="━ *VMESS NTLS (80)* ━\n"
+                msg+="\`vmess://$(echo -n "$vmess_json_ntls" | base64 -w 0)\`\n\n"
                 ;;
         esac
         case "$proto" in
             trojan|all)
                 local pass="KyzTunnel${uuid:0:6}"
-                msg+="\n*TROJAN TLS (443)*\n"
+                msg+="━ *TROJAN TLS (443)* ━\n"
                 msg+="\`trojan://${pass}@${domain}:443?type=ws&security=tls&path=%2Ftrojan&host=${domain}&sni=${domain}${insecure_param}#${user}\`\n"
                 ;;
         esac
@@ -586,12 +557,11 @@ create_xray_user() {
 }
 
 delete_xray_user() {
-    local chat="$1"
-    local user="$2"
+    local chat="$1"; local user="$2"
     jq '(.inbounds[].settings.clients) |= map(select(.email != "'$user'"))' /etc/xray/config.json > /tmp/x.json && mv /tmp/x.json /etc/xray/config.json
     sed -i "/^$user /d" /etc/xray/vless.txt /etc/xray/vmess.txt /etc/xray/trojan.txt 2>/dev/null
     systemctl restart xray
-    send_msg "$chat" "✅ Usuario Xray *$user* eliminado."
+    send_msg "$chat" "✅ Usuario Xray *$user* eliminado correctamente."
 }
 
 list_xray_users() {
@@ -599,25 +569,21 @@ list_xray_users() {
     local vless=$(awk '{print $1}' /etc/xray/vless.txt 2>/dev/null | paste -sd ', ')
     local vmess=$(awk '{print $1}' /etc/xray/vmess.txt 2>/dev/null | paste -sd ', ')
     local trojan=$(awk '{print $1}' /etc/xray/trojan.txt 2>/dev/null | paste -sd ', ')
-    send_msg "$chat" "📋 *VLESS:* $vless\n*VMESS:* $vmess\n*TROJAN:* $trojan"
+    send_msg "$chat" "📋 *Usuarios Xray*\n\n• VLESS: $vless\n• VMESS: $vmess\n• TROJAN: $trojan"
 }
 
 # ==============================
-#  GENERAR NOMBRE DE USUARIO AUTOMÁTICO
+# GENERAR NOMBRE DE USUARIO
 # ==============================
 generate_username() {
     local chat="$1"
     local base_name="$2"
     local counter=$(get_admin_counter "$chat")
-    if [ -z "$base_name" ]; then
-        base_name=$(get_admin_name "$chat")
-        [ -z "$base_name" ] && base_name="user"
-    fi
-    local try_name=""
+    [ -z "$base_name" ] && base_name=$(get_admin_name "$chat")
+    [ -z "$base_name" ] && base_name="user"
     local i=$((counter + 1))
     while true; do
-        try_name="${base_name}${i}"
-        # Verificar si existe en SSH o Xray
+        local try_name="${base_name}${i}"
         if ! id "$try_name" &>/dev/null && ! grep -qw "^$try_name" /etc/xray/vless.txt /etc/xray/vmess.txt /etc/xray/trojan.txt 2>/dev/null; then
             echo "$try_name"
             return
@@ -627,93 +593,98 @@ generate_username() {
 }
 
 # ==============================
-#  PROCESADOR DE COMANDOS
+# PROCESADOR DE COMANDOS
 # ==============================
 process_command() {
     local chat="$1"
     local text="$2"
 
-    # Si no es admin ni dueño, rechazar
     if ! is_admin "$chat"; then
-        send_msg "$chat" "⛔ No tienes acceso. Contacta con @nokasvip si eres admin KYZ."
+        send_msg "$chat" "⛔ *No autorizado*\n\nNo tienes acceso a este bot.\nContacta con @nokasvip si eres admin KYZ."
         return
     fi
 
-    # Comprobar sesión activa
+    # Verificar sesión activa
     local session=$(get_session "$chat")
     if [ -n "$session" ]; then
         handle_session "$chat" "$text" "$session"
         return
     fi
 
-    # Comandos sin sesión
+    # Parsear comando y argumentos
     local cmd=$(echo "$text" | awk '{print $1}')
     local args=($(echo "$text" | cut -d' ' -f2-))
+    local arg1="${args[0]}"
+    local arg2="${args[1]}"
 
     case "$cmd" in
         /start)
             if is_owner "$chat"; then
-                send_msg "$chat" "👋 *Bienvenido, Amo!*\n\nSoy tu asistente de administración de KyzAuto.\nUsa /help para ver los comandos disponibles."
+                send_msg "$chat" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *Bienvenido, Amo!*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nSoy tu asistente de administración de *KyzAuto*.\nUsa /help para ver los comandos disponibles."
             else
                 local name=$(get_admin_name "$chat")
-                send_msg "$chat" "👋 *Bienvenido, $name!*\n\nEres administrador de KyzAuto.\nUsa /help para ver los comandos disponibles."
+                send_msg "$chat" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n👋 *Bienvenido, $name!*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nEres administrador de *KyzAuto*.\nUsa /help para ver los comandos disponibles."
             fi
             ;;
         /help)
-            local help="📌 *Comandos disponibles:*\n\n"
-            help+="🔹 *Gestión SSH:*\n"
-            help+="/addssh - Crear usuario SSH (diálogo paso a paso)\n"
-            help+="/delssh <usuario> - Eliminar usuario SSH\n"
-            help+="/extendssh <usuario> <días> - Extender expiración\n"
-            help+="/listssh - Listar usuarios SSH\n\n"
-            help+="🔹 *Gestión Xray:*\n"
-            help+="/addxray - Crear cuenta Xray (diálogo paso a paso)\n"
-            help+="/delxray <usuario> - Eliminar cuenta Xray\n"
-            help+="/listxray - Listar cuentas Xray\n\n"
-            help+="🔹 *Información:*\n"
-            help+="/info - Mostrar información del servidor\n\n"
+            local help=""
+            help+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            help+="📌 *COMANDOS DISPONIBLES*\n"
+            help+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            help+="🔹 *GESTIÓN SSH*\n"
+            help+="• /addssh → Crear usuario SSH (paso a paso)\n"
+            help+="• /delssh → Eliminar usuario SSH\n"
+            help+="• /extendssh → Extender expiración\n"
+            help+="• /listssh → Listar usuarios\n\n"
+            help+="🔹 *GESTIÓN XRAY*\n"
+            help+="• /addxray → Crear cuenta Xray (paso a paso)\n"
+            help+="• /delxray → Eliminar cuenta Xray\n"
+            help+="• /listxray → Listar cuentas\n\n"
+            help+="🔹 *INFORMACIÓN*\n"
+            help+="• /info → Estado del servidor\n\n"
             if is_owner "$chat"; then
-                help+="🔹 *Dueño:*\n"
-                help+="/addadmin <id> <nombre> - Agregar administrador\n"
-                help+="/deladmin <id> - Eliminar administrador\n"
-                help+="/listadmins - Listar administradores\n"
-                help+="/setlimit <id> <límite> - Establecer límite de usuarios para admin\n"
+                help+="🔹 *DUEÑO*\n"
+                help+="• /addadmin → Agregar administrador (paso a paso)\n"
+                help+="• /deladmin → Eliminar administrador\n"
+                help+="• /listadmins → Listar administradores\n"
+                help+="• /setlimit → Límite de usuarios por admin\n"
             fi
-            help+="\n_Nota: los administradores solo pueden crear usuarios con nombres automáticos (nombre+numero). El dueño puede elegir el nombre libremente._"
+            help+="\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            help+="_Todos los comandos son interactivos._"
             send_msg "$chat" "$help"
             ;;
         /addssh)
             if is_owner "$chat"; then
-                # Dueño: puede elegir nombre, contraseña, días, límite
                 set_session "$chat" "addssh_owner|step1"
-                send_msg "$chat" "👤 Ingresa el *nombre de usuario* para el nuevo SSH (o escribe *auto* para generar automáticamente):"
+                send_msg "$chat" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n👤 *CREAR USUARIO SSH*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📝 Ingresa el *nombre de usuario*\n(escribe *auto* para generar automáticamente):"
             else
-                # Admin: generación automática
                 local name=$(get_admin_name "$chat")
                 local limit=$(get_admin_limit "$chat")
                 local counter=$(get_admin_counter "$chat")
                 if [ "$counter" -ge "$limit" ]; then
-                    send_msg "$chat" "⚠️ Has alcanzado el límite de $limit usuarios. Elimina algún usuario antes de crear más."
+                    send_msg "$chat" "⚠️ *Límite alcanzado*\n\nHas alcanzado el límite de $limit usuarios.\nElimina algún usuario antes de crear más."
                     return
                 fi
                 local new_user=$(generate_username "$chat")
                 set_session "$chat" "addssh_admin|step2|$new_user"
-                send_msg "$chat" "🔑 Ingresa la *contraseña* para el usuario *$new_user*:"
+                send_msg "$chat" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n👤 *CREAR USUARIO SSH*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n🔑 Usuario generado: *$new_user*\n\n📝 Ingresa la *contraseña*:"
             fi
             ;;
         /delssh)
-            if [ ${#args[@]} -lt 1 ]; then
-                send_msg "$chat" "❌ Uso: /delssh <usuario>"
-                return
+            if [ -n "$arg1" ]; then
+                delete_ssh_user "$chat" "$arg1"
+            else
+                set_session "$chat" "delssh|step1"
+                send_msg "$chat" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🗑️ *ELIMINAR USUARIO SSH*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📝 Ingresa el *nombre de usuario* a eliminar:"
             fi
-            delete_ssh_user "$chat" "${args[0]}"
             ;;
         /extendssh)
-            if [ ${#args[@]} -lt 2 ]; then
-                send_msg "$chat" "❌ Uso: /extendssh <usuario> <días>"
-                return
+            if [ -n "$arg1" ] && [ -n "$arg2" ]; then
+                extend_ssh_user "$chat" "$arg1" "$arg2"
+            else
+                set_session "$chat" "extendssh|step1"
+                send_msg "$chat" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📅 *EXTENDER USUARIO SSH*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📝 Ingresa el *nombre de usuario*:"
             fi
-            extend_ssh_user "$chat" "${args[0]}" "${args[1]}"
             ;;
         /listssh)
             list_ssh_users "$chat"
@@ -721,44 +692,49 @@ process_command() {
         /addxray)
             if is_owner "$chat"; then
                 set_session "$chat" "addxray_owner|step1"
-                send_msg "$chat" "👤 Ingresa el *nombre de usuario* para Xray (o escribe *auto* para generar automáticamente):"
+                send_msg "$chat" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📡 *CREAR CUENTA XRAY*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📝 Ingresa el *nombre de usuario*\n(escribe *auto* para generar automáticamente):"
             else
                 local name=$(get_admin_name "$chat")
                 local limit=$(get_admin_limit "$chat")
                 local counter=$(get_admin_counter "$chat")
                 if [ "$counter" -ge "$limit" ]; then
-                    send_msg "$chat" "⚠️ Has alcanzado el límite de $limit usuarios. Elimina algún usuario antes de crear más."
+                    send_msg "$chat" "⚠️ *Límite alcanzado*\n\nHas alcanzado el límite de $limit usuarios.\nElimina algún usuario antes de crear más."
                     return
                 fi
                 local new_user=$(generate_username "$chat")
                 set_session "$chat" "addxray_admin|step2|$new_user"
-                send_msg "$chat" "📡 Elige el *protocolo* (vless, vmess, trojan, all):"
+                send_msg "$chat" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📡 *CREAR CUENTA XRAY*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n👤 Usuario generado: *$new_user*\n\n📡 Elige el *protocolo* (vless, vmess, trojan, all):"
             fi
             ;;
         /delxray)
-            if [ ${#args[@]} -lt 1 ]; then
-                send_msg "$chat" "❌ Uso: /delxray <usuario>"
-                return
+            if [ -n "$arg1" ]; then
+                delete_xray_user "$chat" "$arg1"
+            else
+                set_session "$chat" "delxray|step1"
+                send_msg "$chat" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🗑️ *ELIMINAR CUENTA XRAY*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📝 Ingresa el *nombre de usuario* a eliminar:"
             fi
-            delete_xray_user "$chat" "${args[0]}"
             ;;
         /listxray)
             list_xray_users "$chat"
             ;;
         /info)
-            local info="📊 *Información del servidor*\n\n"
-            info+="🌐 Dominio: $(get_domain)\n"
-            info+="🖥️ IP: $(get_server_ip)\n"
-            info+="🔒 Certificado: $( [ -f /etc/xray/cert_type ] && cat /etc/xray/cert_type || echo 'desconocido' )\n"
-            info+="🐌 SlowDNS NS: $(get_slowdns_ns)\n"
-            info+="🔑 DNS PUB KEY: $(get_pubkey)\n"
-            info+="🔹 Obfs Hysteria: $(get_obfs_hysteria)\n"
-            info+="🔹 Obfs Hysteria2: $(get_obfs_hysteria2)\n"
-            info+="📌 Puertos: SSH(22,299) SSL(443) WS(80,8080,8880,2082,2086,25) SlowDNS(53) BadVPN(7300) UDP Custom(1-65535) Hysteria1(20000-50000) Hysteria2(36713) ZiVPN(6000-19999)\n"
-            info+="📊 Servicios activos:\n"
+            local info=""
+            info+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            info+="📊 *INFORMACIÓN DEL SERVIDOR*\n"
+            info+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            info+="🌐 *Dominio:* $(get_domain)\n"
+            info+="🖥️ *IP:* $(get_server_ip)\n"
+            info+="🔒 *Certificado:* $( [ -f /etc/xray/cert_type ] && cat /etc/xray/cert_type || echo 'desconocido' )\n"
+            info+="🐌 *SlowDNS NS:* $(get_slowdns_ns)\n"
+            info+="🔑 *DNS PUB KEY:* $(get_pubkey)\n"
+            info+="🔹 *Obfs Hysteria:* $(get_obfs_hysteria)\n"
+            info+="🔹 *Obfs Hysteria2:* $(get_obfs_hysteria2)\n\n"
+            info+="━━━━━━━ *SERVICIOS* ━━━━━━━\n"
             for s in ssh stunnel4 sslh squid nginx xray hysteria-server hysteria2-server server-sldns; do
                 status=$(systemctl is-active "$s" 2>/dev/null)
-                info+="  • $s: $status\n"
+                icon="✅"
+                [ "$status" != "active" ] && icon="❌"
+                info+="$icon $s: $status\n"
             done
             send_msg "$chat" "$info"
             ;;
@@ -767,61 +743,66 @@ process_command() {
                 send_msg "$chat" "⛔ Solo el dueño puede agregar administradores."
                 return
             fi
-            if [ ${#args[@]} -lt 2 ]; then
-                set_session "$chat" "addadmin|step1"
-                send_msg "$chat" "📝 Ingresa el *ID* del nuevo administrador (puedes obtenerlo con @userinfobot):"
+            if [ -n "$arg1" ] && [ -n "$arg2" ]; then
+                # Modo rápido: /addadmin <id> <nombre>
+                local new_id="$arg1"
+                local new_name="$arg2"
+                if ! [[ "$new_id" =~ ^[0-9]+$ ]]; then
+                    send_msg "$chat" "❌ El ID debe ser numérico."
+                    return
+                fi
+                if [ "$new_id" = "$OWNER_CHAT_ID" ]; then
+                    send_msg "$chat" "⚠️ Ese es el dueño, ya tiene acceso."
+                    return
+                fi
+                if grep -q "^$new_id:" "$ADMIN_FILE" 2>/dev/null; then
+                    send_msg "$chat" "⚠️ El ID $new_id ya es administrador."
+                    return
+                fi
+                echo "$new_id:$new_name" >> "$ADMIN_FILE"
+                set_admin_counter "$new_id" 0
+                send_msg "$chat" "✅ Administrador *$new_name* (ID: $new_id) agregado correctamente."
                 return
             fi
-            # Modo rápido: /addadmin <id> <nombre>
-            local new_id="${args[0]}"
-            local new_name="${args[1]}"
-            if grep -q "^$new_id:" "$ADMIN_FILE" 2>/dev/null; then
-                send_msg "$chat" "⚠️ El ID $new_id ya es administrador."
-                return
-            fi
-            if [ "$new_id" = "$OWNER_CHAT_ID" ]; then
-                send_msg "$chat" "⚠️ Es el dueño, no necesita ser agregado."
-                return
-            fi
-            echo "$new_id:$new_name" >> "$ADMIN_FILE"
-            set_admin_counter "$new_id" 0
-            send_msg "$chat" "✅ Administrador *$new_name* (ID: $new_id) agregado correctamente."
+            set_session "$chat" "addadmin|step1"
+            send_msg "$chat" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n👤 *AGREGAR ADMINISTRADOR*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📝 Ingresa el *ID* del nuevo administrador\n(Puedes obtenerlo con @userinfobot):"
             ;;
         /deladmin)
             if ! is_owner "$chat"; then
                 send_msg "$chat" "⛔ Solo el dueño puede eliminar administradores."
                 return
             fi
-            if [ ${#args[@]} -lt 1 ]; then
-                send_msg "$chat" "❌ Uso: /deladmin <id>"
+            if [ -n "$arg1" ]; then
+                local del_id="$arg1"
+                if [ "$del_id" = "$OWNER_CHAT_ID" ]; then
+                    send_msg "$chat" "❌ No puedes eliminar al dueño."
+                    return
+                fi
+                if ! grep -q "^$del_id:" "$ADMIN_FILE" 2>/dev/null; then
+                    send_msg "$chat" "⚠️ El ID $del_id no es administrador."
+                    return
+                fi
+                sed -i "/^$del_id:/d" "$ADMIN_FILE"
+                sed -i "/^$del_id:/d" "$COUNTER_FILE"
+                send_msg "$chat" "✅ Administrador eliminado correctamente."
                 return
             fi
-            local del_id="${args[0]}"
-            if [ "$del_id" = "$OWNER_CHAT_ID" ]; then
-                send_msg "$chat" "❌ No puedes eliminar al dueño."
-                return
-            fi
-            if ! grep -q "^$del_id:" "$ADMIN_FILE" 2>/dev/null; then
-                send_msg "$chat" "⚠️ El ID $del_id no es administrador."
-                return
-            fi
-            sed -i "/^$del_id:/d" "$ADMIN_FILE"
-            sed -i "/^$del_id:/d" "$COUNTER_FILE"
-            send_msg "$chat" "✅ Administrador eliminado."
+            set_session "$chat" "deladmin|step1"
+            send_msg "$chat" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🗑️ *ELIMINAR ADMINISTRADOR*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📝 Ingresa el *ID* del administrador a eliminar:"
             ;;
         /listadmins)
             if ! is_owner "$chat"; then
                 send_msg "$chat" "⛔ Solo el dueño puede ver la lista de administradores."
                 return
             fi
-            local list="Dueño: $OWNER_CHAT_ID\n"
-            if [ -f "$ADMIN_FILE" ]; then
-                list+="\n*Administradores:*\n"
+            local list="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n👥 *ADMINISTRADORES*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n👑 *Dueño:* $OWNER_CHAT_ID\n"
+            if [ -f "$ADMIN_FILE" ] && [ -s "$ADMIN_FILE" ]; then
+                list+="\n━ *Adicionales* ━\n"
                 while IFS=: read -r id name; do
                     list+="• $name (ID: $id)\n"
                 done < "$ADMIN_FILE"
             else
-                list+="No hay administradores adicionales."
+                list+="\nNo hay administradores adicionales."
             fi
             send_msg "$chat" "$list"
             ;;
@@ -830,28 +811,33 @@ process_command() {
                 send_msg "$chat" "⛔ Solo el dueño puede establecer límites."
                 return
             fi
-            if [ ${#args[@]} -lt 2 ]; then
-                send_msg "$chat" "❌ Uso: /setlimit <id> <límite>"
+            if [ -n "$arg1" ] && [ -n "$arg2" ]; then
+                local target_id="$arg1"
+                local new_limit="$arg2"
+                if ! [[ "$new_limit" =~ ^[0-9]+$ ]]; then
+                    send_msg "$chat" "❌ El límite debe ser un número."
+                    return
+                fi
+                if ! grep -q "^$target_id:" "$ADMIN_FILE" 2>/dev/null && [ "$target_id" != "$OWNER_CHAT_ID" ]; then
+                    send_msg "$chat" "⚠️ El ID $target_id no es administrador."
+                    return
+                fi
+                sed -i "/^$target_id:/d" "$LIMIT_FILE" 2>/dev/null
+                echo "$target_id:$new_limit" >> "$LIMIT_FILE"
+                send_msg "$chat" "✅ Límite establecido a $new_limit usuarios para el administrador ID: $target_id"
                 return
             fi
-            local target_id="${args[0]}"
-            local new_limit="${args[1]}"
-            if ! [[ "$new_limit" =~ ^[0-9]+$ ]]; then
-                send_msg "$chat" "❌ El límite debe ser un número."
-                return
-            fi
-            sed -i "/^$target_id:/d" "$LIMIT_FILE" 2>/dev/null
-            echo "$target_id:$new_limit" >> "$LIMIT_FILE"
-            send_msg "$chat" "✅ Límite para el administrador $target_id establecido a $new_limit usuarios."
+            set_session "$chat" "setlimit|step1"
+            send_msg "$chat" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📊 *ESTABLECER LÍMITE*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n📝 Ingresa el *ID* del administrador:"
             ;;
         *)
-            send_msg "$chat" "❌ Comando desconocido. Usa /help para ver los comandos disponibles."
+            send_msg "$chat" "❌ *Comando desconocido*\n\nUsa /help para ver los comandos disponibles."
             ;;
     esac
 }
 
 # ==============================
-#  MANEJO DE SESIONES (diálogos)
+# MANEJO DE SESIONES (PASO A PASO)
 # ==============================
 handle_session() {
     local chat="$1"
@@ -864,17 +850,16 @@ handle_session() {
         addssh_owner)
             case "$step" in
                 step1)
-                    # Pedir nombre de usuario
                     if [ "$input" = "auto" ]; then
                         local new_user=$(generate_username "$chat")
                     else
                         local new_user="$input"
                         if ! [[ "$new_user" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]]; then
-                            send_msg "$chat" "❌ Nombre inválido. Usa solo letras, números, guiones bajos."
+                            send_msg "$chat" "❌ Nombre inválido.\nUsa solo letras, números y guiones bajos."
                             return
                         fi
                         if id "$new_user" &>/dev/null || grep -qw "^$new_user" /etc/xray/vless.txt /etc/xray/vmess.txt /etc/xray/trojan.txt 2>/dev/null; then
-                            send_msg "$chat" "❌ El usuario *$new_user* ya existe. Elige otro."
+                            send_msg "$chat" "❌ El usuario *$new_user* ya existe.\nElige otro nombre o escribe *auto*."
                             return
                         fi
                     fi
@@ -885,7 +870,7 @@ handle_session() {
                     local user="$data"
                     local pass="$input"
                     if [ -z "$pass" ] || [[ "$pass" =~ [[:space:]] ]]; then
-                        send_msg "$chat" "❌ Contraseña inválida (no puede estar vacía ni contener espacios)."
+                        send_msg "$chat" "❌ Contraseña inválida.\nNo puede estar vacía ni contener espacios."
                         return
                     fi
                     set_session "$chat" "addssh_owner|step3|$user|$pass"
@@ -899,7 +884,7 @@ handle_session() {
                         return
                     fi
                     set_session "$chat" "addssh_owner|step4|$user|$pass|$days"
-                    send_msg "$chat" "🔗 Ingresa el *límite de conexiones simultáneas* (0 = sin límite):"
+                    send_msg "$chat" "🔗 Ingresa el *límite de conexiones* (0 = sin límite):"
                     ;;
                 step4)
                     IFS='|' read -r _ _ user pass days <<< "$session"
@@ -910,7 +895,6 @@ handle_session() {
                     fi
                     clear_session "$chat"
                     create_ssh_user "$chat" "$user" "$pass" "$days" "$limit"
-                    # Incrementar contador del admin (si no es dueño)
                     if ! is_owner "$chat"; then
                         increment_admin_counter "$chat"
                     fi
@@ -923,7 +907,7 @@ handle_session() {
                     local user="$data"
                     local pass="$input"
                     if [ -z "$pass" ] || [[ "$pass" =~ [[:space:]] ]]; then
-                        send_msg "$chat" "❌ Contraseña inválida (no puede estar vacía ni contener espacios)."
+                        send_msg "$chat" "❌ Contraseña inválida.\nNo puede estar vacía ni contener espacios."
                         return
                     fi
                     set_session "$chat" "addssh_admin|step3|$user|$pass"
@@ -937,7 +921,7 @@ handle_session() {
                         return
                     fi
                     set_session "$chat" "addssh_admin|step4|$user|$pass|$days"
-                    send_msg "$chat" "🔗 Ingresa el *límite de conexiones simultáneas* (0 = sin límite):"
+                    send_msg "$chat" "🔗 Ingresa el *límite de conexiones* (0 = sin límite):"
                     ;;
                 step4)
                     IFS='|' read -r _ _ user pass days <<< "$session"
@@ -949,6 +933,44 @@ handle_session() {
                     clear_session "$chat"
                     create_ssh_user "$chat" "$user" "$pass" "$days" "$limit"
                     increment_admin_counter "$chat"
+                    ;;
+            esac
+            ;;
+        delssh)
+            case "$step" in
+                step1)
+                    local user="$input"
+                    if ! id "$user" &>/dev/null; then
+                        send_msg "$chat" "❌ El usuario *$user* no existe."
+                        clear_session "$chat"
+                        return
+                    fi
+                    clear_session "$chat"
+                    delete_ssh_user "$chat" "$user"
+                    ;;
+            esac
+            ;;
+        extendssh)
+            case "$step" in
+                step1)
+                    local user="$input"
+                    if ! id "$user" &>/dev/null; then
+                        send_msg "$chat" "❌ El usuario *$user* no existe."
+                        clear_session "$chat"
+                        return
+                    fi
+                    set_session "$chat" "extendssh|step2|$user"
+                    send_msg "$chat" "📅 Ingresa los *días a agregar*:"
+                    ;;
+                step2)
+                    local user="$data"
+                    local days="$input"
+                    if ! [[ "$days" =~ ^[0-9]+$ ]] || [ "$days" -eq 0 ]; then
+                        send_msg "$chat" "❌ Debes ingresar un número de días mayor que 0."
+                        return
+                    fi
+                    clear_session "$chat"
+                    extend_ssh_user "$chat" "$user" "$days"
                     ;;
             esac
             ;;
@@ -964,7 +986,7 @@ handle_session() {
                             return
                         fi
                         if grep -qw "^$new_user" /etc/xray/vless.txt /etc/xray/vmess.txt /etc/xray/trojan.txt 2>/dev/null; then
-                            send_msg "$chat" "❌ El usuario *$new_user* ya tiene cuenta Xray."
+                            send_msg "$chat" "❌ El usuario *$new_user* ya tiene cuenta Xray.\nElige otro nombre o escribe *auto*."
                             return
                         fi
                     fi
@@ -975,7 +997,7 @@ handle_session() {
                     local user="$data"
                     local proto="$input"
                     if [[ ! "$proto" =~ ^(vless|vmess|trojan|all)$ ]]; then
-                        send_msg "$chat" "❌ Protocolo no válido. Usa: vless, vmess, trojan, all"
+                        send_msg "$chat" "❌ Protocolo no válido.\nUsa: vless, vmess, trojan, all"
                         return
                     fi
                     set_session "$chat" "addxray_owner|step3|$user|$proto"
@@ -989,14 +1011,12 @@ handle_session() {
                         return
                     fi
                     set_session "$chat" "addxray_owner|step4|$user|$proto|$days"
-                    send_msg "$chat" "🔑 ¿Quieres usar un *UUID personalizado*? Si no, escribe *no* para generar uno automático:"
+                    send_msg "$chat" "🔑 ¿Quieres usar un *UUID personalizado*?\nEscribe *no* para generar uno automático:"
                     ;;
                 step4)
                     IFS='|' read -r _ _ user proto days <<< "$session"
                     local uuid="$input"
-                    if [ "$uuid" = "no" ] || [ -z "$uuid" ]; then
-                        uuid=$(cat /proc/sys/kernel/random/uuid)
-                    fi
+                    [ "$uuid" = "no" ] || [ -z "$uuid" ] && uuid=$(cat /proc/sys/kernel/random/uuid)
                     clear_session "$chat"
                     create_xray_user "$chat" "$user" "$proto" "$days" "$uuid"
                     if ! is_owner "$chat"; then
@@ -1011,7 +1031,7 @@ handle_session() {
                     local user="$data"
                     local proto="$input"
                     if [[ ! "$proto" =~ ^(vless|vmess|trojan|all)$ ]]; then
-                        send_msg "$chat" "❌ Protocolo no válido. Usa: vless, vmess, trojan, all"
+                        send_msg "$chat" "❌ Protocolo no válido.\nUsa: vless, vmess, trojan, all"
                         return
                     fi
                     set_session "$chat" "addxray_admin|step3|$user|$proto"
@@ -1025,17 +1045,29 @@ handle_session() {
                         return
                     fi
                     set_session "$chat" "addxray_admin|step4|$user|$proto|$days"
-                    send_msg "$chat" "🔑 ¿Quieres usar un *UUID personalizado*? Si no, escribe *no* para generar uno automático:"
+                    send_msg "$chat" "🔑 ¿Quieres usar un *UUID personalizado*?\nEscribe *no* para generar uno automático:"
                     ;;
                 step4)
                     IFS='|' read -r _ _ user proto days <<< "$session"
                     local uuid="$input"
-                    if [ "$uuid" = "no" ] || [ -z "$uuid" ]; then
-                        uuid=$(cat /proc/sys/kernel/random/uuid)
-                    fi
+                    [ "$uuid" = "no" ] || [ -z "$uuid" ] && uuid=$(cat /proc/sys/kernel/random/uuid)
                     clear_session "$chat"
                     create_xray_user "$chat" "$user" "$proto" "$days" "$uuid"
                     increment_admin_counter "$chat"
+                    ;;
+            esac
+            ;;
+        delxray)
+            case "$step" in
+                step1)
+                    local user="$input"
+                    if ! grep -qw "^$user" /etc/xray/vless.txt /etc/xray/vmess.txt /etc/xray/trojan.txt 2>/dev/null; then
+                        send_msg "$chat" "❌ El usuario *$user* no tiene cuenta Xray."
+                        clear_session "$chat"
+                        return
+                    fi
+                    clear_session "$chat"
+                    delete_xray_user "$chat" "$user"
                     ;;
             esac
             ;;
@@ -1048,15 +1080,17 @@ handle_session() {
                         return
                     fi
                     if [ "$new_id" = "$OWNER_CHAT_ID" ]; then
-                        send_msg "$chat" "⚠️ Es el dueño, no necesita ser agregado."
+                        send_msg "$chat" "⚠️ Ese es el dueño, ya tiene acceso."
+                        clear_session "$chat"
                         return
                     fi
                     if grep -q "^$new_id:" "$ADMIN_FILE" 2>/dev/null; then
                         send_msg "$chat" "⚠️ El ID $new_id ya es administrador."
+                        clear_session "$chat"
                         return
                     fi
                     set_session "$chat" "addadmin|step2|$new_id"
-                    send_msg "$chat" "📝 Ingresa el *nombre* para el administrador (ej. emanet):"
+                    send_msg "$chat" "📝 Ingresa el *nombre* del administrador (ej. emanet):"
                     ;;
                 step2)
                     local new_id="$data"
@@ -1067,20 +1101,67 @@ handle_session() {
                     fi
                     echo "$new_id:$new_name" >> "$ADMIN_FILE"
                     set_admin_counter "$new_id" 0
-                    send_msg "$chat" "✅ Administrador *$new_name* (ID: $new_id) agregado correctamente."
                     clear_session "$chat"
+                    send_msg "$chat" "✅ Administrador *$new_name* (ID: $new_id) agregado correctamente."
+                    ;;
+            esac
+            ;;
+        deladmin)
+            case "$step" in
+                step1)
+                    local del_id="$input"
+                    if [ "$del_id" = "$OWNER_CHAT_ID" ]; then
+                        send_msg "$chat" "❌ No puedes eliminar al dueño."
+                        clear_session "$chat"
+                        return
+                    fi
+                    if ! grep -q "^$del_id:" "$ADMIN_FILE" 2>/dev/null; then
+                        send_msg "$chat" "⚠️ El ID $del_id no es administrador."
+                        clear_session "$chat"
+                        return
+                    fi
+                    sed -i "/^$del_id:/d" "$ADMIN_FILE"
+                    sed -i "/^$del_id:/d" "$COUNTER_FILE"
+                    clear_session "$chat"
+                    send_msg "$chat" "✅ Administrador eliminado correctamente."
+                    ;;
+            esac
+            ;;
+        setlimit)
+            case "$step" in
+                step1)
+                    local target_id="$input"
+                    if ! grep -q "^$target_id:" "$ADMIN_FILE" 2>/dev/null && [ "$target_id" != "$OWNER_CHAT_ID" ]; then
+                        send_msg "$chat" "⚠️ El ID $target_id no es administrador."
+                        clear_session "$chat"
+                        return
+                    fi
+                    set_session "$chat" "setlimit|step2|$target_id"
+                    send_msg "$chat" "📊 Ingresa el *nuevo límite* de usuarios (número):"
+                    ;;
+                step2)
+                    local target_id="$data"
+                    local new_limit="$input"
+                    if ! [[ "$new_limit" =~ ^[0-9]+$ ]]; then
+                        send_msg "$chat" "❌ El límite debe ser un número."
+                        return
+                    fi
+                    sed -i "/^$target_id:/d" "$LIMIT_FILE" 2>/dev/null
+                    echo "$target_id:$new_limit" >> "$LIMIT_FILE"
+                    clear_session "$chat"
+                    send_msg "$chat" "✅ Límite establecido a $new_limit usuarios para el administrador ID: $target_id"
                     ;;
             esac
             ;;
         *)
             clear_session "$chat"
-            send_msg "$chat" "❌ Sesión inválida. Usa /help para comenzar de nuevo."
+            send_msg "$chat" "❌ *Sesión inválida*\n\nUsa /help para comenzar de nuevo."
             ;;
     esac
 }
 
 # ==============================
-#  BUCLE PRINCIPAL
+# BUCLE PRINCIPAL
 # ==============================
 while true; do
     updates=$(get_updates)
@@ -1101,17 +1182,13 @@ sed -i "s|MYBOTID|$My_Bot_Key|g" /usr/local/bin/telegram-admin-bot
 sed -i "s|MYCHATID|$My_Chat_ID|g" /usr/local/bin/telegram-admin-bot
 
 chmod 755 /usr/local/bin/telegram-admin-bot
-
-# Crear directorio de sesiones
 mkdir -p /tmp/bot_sessions
 chmod 755 /tmp/bot_sessions
 
-# Crear archivos de configuración iniciales si no existen
 touch /etc/telegram-admins.txt
 touch /etc/telegram-user-counter.txt
 touch /etc/telegram-limit.txt
 
-# Crear servicio systemd
 cat > /etc/systemd/system/telegram-admin-bot.service <<EOF
 [Unit]
 Description=Telegram Admin Bot for KyzAuto
